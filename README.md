@@ -16,7 +16,17 @@ Each script reads the CSV and writes an HTML file to the same directory:
 | `index.js` | `*-heatmaps.html` | Delta and gamma heatmaps |
 | `portfolio.js` | `*-portfolio.html` | Theta, vega, quality, and full scorecard |
 
-## Exporting from OptionStrat
+## Downloading from OptionStrat (automated)
+
+```bash
+npm ci               # use ci, not install — enforces the lock file exactly
+cp .env.example .env # add your credentials
+node download.js     # downloads Group: Live → CSV
+```
+
+`npm ci` is intentional: it fails if `package-lock.json` doesn't match `package.json`, preventing a compromised upstream version from silently entering the build.
+
+## Exporting from OptionStrat (manual)
 
 1. Open your positions on [OptionStrat](https://optionstrat.com)
 2. Use the **Live Active by Expiration** export

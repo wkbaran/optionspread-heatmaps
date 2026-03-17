@@ -11,5 +11,9 @@
   },
   "engines": {
     "node": ">=16"
+  },
+  "dependencies": {
+    "dotenv": "17.3.1",
+    "xlsx": "0.18.5"
   }
 }
