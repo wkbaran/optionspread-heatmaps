@@ -632,4 +632,45 @@ fs.mkdirSync(reportsDir, { recursive: true });
 const outFile = path.join(reportsDir, basename + '-portfolio.html');
 fs.writeFileSync(outFile, html);
 console.log(`Wrote → ${outFile}`);
+
+// ── JSON snapshot ─────────────────────────────────────────────────────────────
+// Mirrors the Position Scorecard. Saved to data/ alongside the source CSV so
+// each snapshot is timestamped and can be used for trend graphs or risk checks.
+
+function fmtExpISO(expStr) {
+  // "4/17/26 14:00" or "4/17/2026 14:00" → "2026-04-17"
+  const m = (expStr || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!m) return expStr;
+  const year = m[3].length === 2 ? '20' + m[3] : m[3];
+  return `${year}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+}
+
+const snapshot = {
+  generatedAt: new Date().toISOString(),
+  source:      path.basename(csvFile),
+  positions:   spreads.map(s => ({
+    name:       s.name,
+    underlying: s.underlying,
+    expiration: fmtExpISO(s.expiration),
+    type:       s.type,
+    chance:     s.chance,
+    credit:     s.credit,
+    maxProfit:  s.maxProfit,
+    maxLoss:    s.maxLoss,
+    ev:         s.ev,
+    returnPct:  s.returnPct,
+    theta:      s.theta,
+    vega:       s.vega,
+    gamma:      s.gamma,
+    delta:      s.delta,
+    iv:         s.iv,
+    tgRatio:    s.tgRatio,
+    tvRatio:    s.tvRatio,
+  })),
+};
+
+const jsonFile = path.join(reportsDir, basename + '-portfolio.json');
+fs.writeFileSync(jsonFile, JSON.stringify(snapshot, null, 2));
+console.log(`Wrote → ${jsonFile}`);
+
 require('./generate-index')();
