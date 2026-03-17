@@ -322,7 +322,65 @@ function scorecard(spreads) {
       </tr>
     </tbody>
   </table>
-  <p class="footnote">EV uses a binary-outcome approximation (full win vs. full loss). Negative EV is typical for credit spreads where max loss >> max profit — the actual probability of <em>any</em> profit is higher than the "Chance" figure shown.</p>
+  <details class="col-guide">
+    <summary>Column guide — EV &amp; Greeks</summary>
+    <dl>
+      <dt>EV</dt>
+      <dd>
+        Binary-outcome expected value: <code>Chance × Max Profit − (1 − Chance) × Max Loss</code>.
+        Treats the trade as either expiring fully worthless (max profit) or reaching max loss — nothing in between.
+        <strong>Negative EV is normal and expected</strong> for credit spreads: max loss is typically 4–10× max profit,
+        so even an 80% winner produces a negative number. Use EV as a <em>relative</em> ranking across positions,
+        not as an absolute signal. A less-negative EV means the risk/reward ratio is better for a given probability.
+      </dd>
+
+      <dt>Θ Theta</dt>
+      <dd>
+        Daily time decay in dollars. Positive means the position earns money each day that passes with everything else held constant.
+        Credit spreads are short premium, so theta is always positive — you are the one collecting the decay.
+        The Theta Concentration section at the top of this page shows how this is distributed across underlyings and expirations.
+      </dd>
+
+      <dt>Vega</dt>
+      <dd>
+        Dollar change in position value per 1% rise in implied volatility (IV).
+        Negative for all credit spreads — you sold premium, so a spike in IV increases the value of what you owe and hurts you.
+        The magnitude tells you how exposed a position is to a volatility event.
+        The Vega Concentration section shows this aggregated across the book.
+      </dd>
+
+      <dt>Γ Gamma</dt>
+      <dd>
+        Rate of change of delta per $1 move in the underlying. Negative for credit spreads — a large move in either direction
+        increases your directional exposure in the wrong direction (losses accelerate as the underlying moves against you).
+        Near-expiry, at-the-money positions carry the most gamma risk.
+      </dd>
+
+      <dt>IV</dt>
+      <dd>
+        Implied volatility of the underlying at the time the position was entered.
+        Higher IV at entry means you collected more premium relative to the width of the spread —
+        generally a more favourable entry environment for credit strategies.
+        Not updated in real time; it reflects the entry conditions.
+      </dd>
+
+      <dt>Θ / |Γ|</dt>
+      <dd>
+        Quality ratio: how much daily theta you earn per unit of gamma risk.
+        Higher is better — the position is well compensated for the convexity exposure it carries.
+        Useful for comparing two positions with similar probability profiles but different risk/reward dynamics.
+        Positions with gamma = 0 (deep in- or out-of-the-money, no convexity) are excluded from ranking.
+      </dd>
+
+      <dt>Return</dt>
+      <dd>
+        Current mark-to-market return on the position as a percentage of max profit.
+        100% means the spread has expired worthless and you kept all the premium.
+        Negative means the position is currently at a loss relative to entry.
+        Colour is diverging: green for positive return, red for negative.
+      </dd>
+    </dl>
+  </details>
 </section>`;
 }
 
@@ -425,6 +483,59 @@ const html = `<!DOCTYPE html>
     td.trow.na { border-top: 2px solid #f0a500; }
     th.tcol { border-left: 2px solid #f0a500; }
     tr.exp-divider td { padding: 2px 0; background: #0a0e1a; border: none; }
+    details.col-guide {
+      margin-top: 16px;
+      border: 1px solid #2a3040;
+      border-radius: 6px;
+      padding: 0;
+    }
+    details.col-guide[open] { padding-bottom: 16px; }
+    details.col-guide summary {
+      cursor: pointer;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      list-style: none;
+      user-select: none;
+    }
+    details.col-guide summary::-webkit-details-marker { display: none; }
+    details.col-guide summary::before {
+      content: '▸ ';
+      color: #f0a500;
+    }
+    details.col-guide[open] summary::before { content: '▾ '; }
+    details.col-guide dl {
+      margin: 4px 14px 0;
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 20px;
+    }
+    details.col-guide dt {
+      font-family: 'Cascadia Code', 'Fira Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: #f0a500;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+    details.col-guide dd {
+      font-size: 12px;
+      color: #8b949e;
+      line-height: 1.55;
+    }
+    details.col-guide dd strong { color: #c9d1d9; }
+    details.col-guide dd em { color: #adbac7; font-style: italic; }
+    details.col-guide dd code {
+      font-family: 'Cascadia Code', 'Fira Mono', monospace;
+      font-size: 11px;
+      color: #e6edf3;
+      background: #1c2230;
+      border-radius: 3px;
+      padding: 1px 5px;
+    }
     .badge {
       font-size: 10px;
       font-weight: 700;
