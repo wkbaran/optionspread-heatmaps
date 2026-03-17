@@ -1,0 +1,15 @@
+{
+  "name": "optionspread-heatmaps",
+  "version": "1.0.0",
+  "description": "Generate delta/gamma heatmaps from options spread CSV exports",
+  "main": "index.js",
+  "bin": {
+    "heatmaps": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
