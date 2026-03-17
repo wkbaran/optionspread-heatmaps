@@ -10,10 +10,9 @@
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=20.6"
   },
   "dependencies": {
-    "dotenv": "17.3.1",
     "xlsx": "0.18.5"
   }
 }

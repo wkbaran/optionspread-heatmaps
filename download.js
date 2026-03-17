@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-require('dotenv').config();
 const { chromium } = require('playwright');
 const XLSX = require('xlsx');
 const fs = require('fs');
