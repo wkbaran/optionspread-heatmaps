@@ -462,6 +462,9 @@ ${scorecard(spreads)}
 </body>
 </html>`;
 
-const outFile = path.join(path.dirname(csvFile), basename + '-portfolio.html');
+const reportsDir = path.join(__dirname, 'reports');
+fs.mkdirSync(reportsDir, { recursive: true });
+const outFile = path.join(reportsDir, basename + '-portfolio.html');
 fs.writeFileSync(outFile, html);
 console.log(`Wrote → ${outFile}`);
+require('./generate-index')();

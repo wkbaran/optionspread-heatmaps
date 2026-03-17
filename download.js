@@ -28,24 +28,24 @@ function xlsxToCsv(xlsxBuffer) {
   const page = await context.newPage();
 
   try {
-    console.log('Navigating to OptionStrat...');
+    console.error('Navigating to OptionStrat...');
     await page.goto('https://optionstrat.com', { waitUntil: 'networkidle' });
 
     // Click Log In in the top-right
     await page.click('text=Log In');
     await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="mail" i]');
 
-    console.log('Logging in...');
+    console.error('Logging in...');
     await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', EMAIL);
     await page.fill('input[type="password"]', PASSWORD);
     await page.click('button[type="submit"], button:has-text("Log In")');
 
     // Wait for login to complete — nav should show account area
     await page.waitForSelector('text=My Account', { timeout: 15000 });
-    console.log('Logged in.');
+    console.error('Logged in.');
 
     // Navigate directly to saved trades
-    console.log('Opening saved trades...');
+    console.error('Opening saved trades...');
     await page.goto('https://optionstrat.com/saved', { waitUntil: 'networkidle' });
 
     // Ensure "Live" is selected in the Group dropdown
@@ -54,18 +54,18 @@ function xlsxToCsv(xlsxBuffer) {
     if (groupVisible) {
       const current = await groupSelect.inputValue().catch(() => '');
       if (!current.toLowerCase().includes('live')) {
-        console.log('Selecting "Live" group...');
+        console.error('Selecting "Live" group...');
         await groupSelect.selectOption({ label: 'Live' });
         await page.waitForTimeout(1000);
       } else {
-        console.log('Group "Live" already selected.');
+        console.error('Group "Live" already selected.');
       }
     } else {
-      console.log('Group dropdown not found — proceeding with current selection.');
+      console.error('Group dropdown not found — proceeding with current selection.');
     }
 
     // Open export modal
-    console.log('Clicking Export...');
+    console.error('Clicking Export...');
     await page.click('button:has-text("Export"), a:has-text("Export")');
     await page.waitForSelector('text=Export as .xlsx', { timeout: 10000 });
 
@@ -77,15 +77,25 @@ function xlsxToCsv(xlsxBuffer) {
     const tmpPath = await download.path();
     if (!tmpPath) throw new Error('Download failed — no file path returned.');
 
-    // Derive output name from the downloaded filename (replace .xlsx extension with .csv)
+    // Save xlsx to data/
+    const dataDir = path.join(__dirname, 'data');
+    fs.mkdirSync(dataDir, { recursive: true });
     const suggestedName = download.suggestedFilename();
-    const csvName = suggestedName.replace(/\.xlsx$/i, '.csv');
-    const outPath = path.join(__dirname, csvName);
+    const xlsxPath = path.join(dataDir, suggestedName);
+    fs.copyFileSync(tmpPath, xlsxPath);
+    console.error(`Downloaded: ${suggestedName}`);
 
-    const xlsxBuffer = fs.readFileSync(tmpPath);
+    // Convert to csv — only delete xlsx if conversion succeeds
+    const csvName = suggestedName.replace(/\.xlsx$/i, '.csv');
+    const csvPath = path.join(dataDir, csvName);
+    const xlsxBuffer = fs.readFileSync(xlsxPath);
     const csv = xlsxToCsv(xlsxBuffer);
-    fs.writeFileSync(outPath, csv);
-    console.log(`Saved: ${csvName}`);
+    fs.writeFileSync(csvPath, csv);
+    fs.unlinkSync(xlsxPath);
+    console.error(`Converted: ${csvName}`);
+
+    // Print csv path to stdout for callers to capture
+    console.log(csvPath);
   } finally {
     await browser.close();
   }
