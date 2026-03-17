@@ -43,6 +43,7 @@ function loadSpreads(filePath) {
     const name      = v[0];
     const gamma     = parseFloat(v[13]) || 0;
     const theta     = parseFloat(v[12]) || 0;
+    const vega      = parseFloat(v[14]) || 0;
     const chance    = parsePct(v[6]) / 100;
     const maxLoss   = Math.abs(parseDollar(v[7]));
     const maxProfit = Math.abs(parseDollar(v[8]));
@@ -62,9 +63,10 @@ function loadSpreads(filePath) {
       delta:           parseFloat(v[11]) || 0,
       theta,
       gamma,
-      vega:            parseFloat(v[14]) || 0,
+      vega,
       iv:              parsePct(v[16]),
       tgRatio:         gamma !== 0 ? theta / Math.abs(gamma) : null,
+      tvRatio:         vega  !== 0 ? theta / Math.abs(vega)  : null,
     });
   }
   return out;
@@ -209,6 +211,44 @@ function qualityList(spreads) {
 </section>`;
 }
 
+// ── Section 3b: Theta/|Vega| quality ranked list ─────────────────────────────
+
+function vegaQualityList(spreads) {
+  const withRatio    = [...spreads].filter(s => s.tvRatio !== null)
+                                   .sort((a, b) => b.tvRatio - a.tvRatio);
+  const withoutRatio = spreads.filter(s => s.tvRatio === null);
+
+  const maxVal = Math.max(...withRatio.map(s => s.tvRatio), 1e-9);
+
+  const rows = [...withRatio, ...withoutRatio].map(s => {
+    if (s.tvRatio === null) {
+      return `<tr>
+        <td class="sym">${s.underlying}</td>
+        <td class="expd">${fmtExp(s.expiration)}</td>
+        <td class="pos">${s.name}</td>
+        <td class="na" title="Vega = 0; ratio undefined">—</td>
+      </tr>`;
+    }
+    const bg = cAmber(s.tvRatio, maxVal);
+    return `<tr style="background:${bg};color:${fg(bg)}">
+      <td class="sym">${s.underlying}</td>
+      <td class="expd">${fmtExp(s.expiration)}</td>
+      <td class="pos">${s.name}</td>
+      <td class="val">${s.tvRatio.toFixed(3)}</td>
+    </tr>`;
+  }).join('\n');
+
+  return `
+<section>
+  <h2>Theta / |Vega| Quality</h2>
+  <p class="subtitle">Daily time decay collected per unit of volatility exposure. Higher = better compensated for a vol spike. Sorted best &rarr; worst.</p>
+  <table>
+    <thead><tr><th>Symbol</th><th>Expiry</th><th>Position</th><th>Θ / |V|</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</section>`;
+}
+
 // ── Section 4: Per-position scorecard ────────────────────────────────────────
 
 function scorecard(spreads) {
@@ -238,6 +278,8 @@ function scorecard(spreads) {
     { key: 'iv',        hdr: 'IV',        fmt: v => v.toFixed(1)+'%',
       color: (v, st) => cAmber(v, st.max) },
     { key: 'tgRatio',   hdr: 'Θ/|Γ|',    fmt: v => v == null ? '—' : v.toFixed(2),
+      color: (v, st) => v == null ? '#1e2330' : cAmber(v, st.max), nullable: true },
+    { key: 'tvRatio',   hdr: 'Θ/|V|',    fmt: v => v == null ? '—' : v.toFixed(2),
       color: (v, st) => v == null ? '#1e2330' : cAmber(v, st.max), nullable: true },
     { key: 'returnPct', hdr: 'Return',    fmt: v => v.toFixed(1)+'%',
       color: (v, st) => cDiverging(v, st.min, st.max) },
@@ -370,6 +412,16 @@ function scorecard(spreads) {
         Higher is better — the position is well compensated for the convexity exposure it carries.
         Useful for comparing two positions with similar probability profiles but different risk/reward dynamics.
         Positions with gamma = 0 (deep in- or out-of-the-money, no convexity) are excluded from ranking.
+      </dd>
+
+      <dt>Θ / |V|</dt>
+      <dd>
+        How much daily theta you earn per dollar lost if implied volatility rises by 1%.
+        Higher is better — the position is well compensated for its volatility exposure.
+        Low values identify positions that are cheapest to close into a vol spike: you are earning little
+        time decay relative to how much a sustained IV expansion would hurt you.
+        Complements Θ/|Γ| — gamma risk is acute and move-driven, vega risk is broader and regime-driven.
+        A position can score well on one and poorly on the other.
       </dd>
 
       <dt>Return</dt>
@@ -567,6 +619,8 @@ ${concentrationGrid(
 )}
 
 ${qualityList(spreads)}
+
+${vegaQualityList(spreads)}
 
 ${scorecard(spreads)}
 
