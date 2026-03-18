@@ -9,6 +9,7 @@ const path = require('path');
 const EMAIL = process.env.OPTIONSTRAT_EMAIL;
 const PASSWORD = process.env.OPTIONSTRAT_PASSWORD;
 const HEADLESS = process.env.HEADLESS !== 'false';
+const SESSION_FILE = path.join(__dirname, '.session.json');
 
 if (!EMAIL || !PASSWORD) {
   console.error('Missing OPTIONSTRAT_EMAIL or OPTIONSTRAT_PASSWORD in .env');
@@ -23,26 +24,35 @@ function xlsxToCsv(xlsxBuffer) {
 }
 
 (async () => {
+  const sessionExists = fs.existsSync(SESSION_FILE);
   const browser = await chromium.launch({ headless: HEADLESS });
-  const context = await browser.newContext();
+  const context = await browser.newContext(
+    sessionExists ? { storageState: SESSION_FILE } : {}
+  );
   const page = await context.newPage();
 
   try {
     console.error('Navigating to OptionStrat...');
     await page.goto('https://optionstrat.com', { waitUntil: 'networkidle' });
 
-    // Click Log In in the top-right
-    await page.click('text=Log In');
-    await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="mail" i]');
+    // Check if already logged in
+    const loggedIn = await page.locator('text=My Account').isVisible().catch(() => false);
 
-    console.error('Logging in...');
-    await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', EMAIL);
-    await page.fill('input[type="password"]', PASSWORD);
-    await page.click('button[type="submit"], button:has-text("Log In")');
+    if (!loggedIn) {
+      console.error('Session expired or missing — logging in...');
+      await page.click('text=Log In');
+      await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="mail" i]');
 
-    // Wait for login to complete — nav should show account area
-    await page.waitForSelector('text=My Account', { timeout: 15000 });
-    console.error('Logged in.');
+      await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', EMAIL);
+      await page.fill('input[type="password"]', PASSWORD);
+      await page.click('button[type="submit"], button:has-text("Log In")');
+
+      await page.waitForSelector('text=My Account', { timeout: 15000 });
+      console.error('Logged in. Saving session...');
+      await context.storageState({ path: SESSION_FILE });
+    } else {
+      console.error('Resumed existing session.');
+    }
 
     // Navigate directly to saved trades
     console.error('Opening saved trades...');
