@@ -118,10 +118,17 @@
       bg   = cGreen(value, max);
       return { bg: bg, fg: fgFor(bg) };
     }
-    if (sectionType === 'vega-grid') {
+    if (sectionType === 'vega-grid' || sectionType === 'gamma-grid') {
       vals   = gridDataVals(tbody);
       absMax = vals.reduce(function (m, v) { return Math.max(m, Math.abs(v)); }, 1e-9);
       bg     = cRed(Math.abs(value), absMax);
+      return { bg: bg, fg: fgFor(bg) };
+    }
+    if (sectionType === 'delta-grid') {
+      vals   = gridDataVals(tbody);
+      var gmin = vals.reduce(function (m, v) { return Math.min(m, v); }, Infinity);
+      var gmax = vals.reduce(function (m, v) { return Math.max(m, v); }, -Infinity);
+      bg = cDiverging(value, gmin === Infinity ? 0 : gmin, gmax === -Infinity ? 0 : gmax);
       return { bg: bg, fg: fgFor(bg) };
     }
     if (sectionType === 'quality-tg' || sectionType === 'quality-tv') {
@@ -208,7 +215,7 @@
   var DECIMALS = {
     'delta-individual': 4, 'gamma-individual': 4,
     'delta-combined':   2, 'gamma-combined':   2,
-    'theta-grid':       3, 'vega-grid':        3,
+    'theta-grid': 3, 'vega-grid': 3, 'delta-grid': 3, 'gamma-grid': 3,
   };
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -314,7 +321,8 @@
       var dec = DECIMALS[type] || 3;
       if (type === 'delta-individual')
         updateIndividualTotal(tbody, dec);
-      else if (type === 'delta-combined' || type === 'theta-grid' || type === 'vega-grid')
+      else if (type === 'delta-combined' || type === 'theta-grid' || type === 'vega-grid' ||
+               type === 'delta-grid'     || type === 'gamma-grid')
         updateGridTotals(tbody, dec);
     });
   }
@@ -335,26 +343,29 @@
     return totalRow;
   }
 
-  // Grid tables: alphabetical by underlying, or after the existing row for that sym.
-  function gridInsertBefore(tbody, underlying, existsAlready) {
+  // Sort directions for concentration grids (used by gridInsertBefore)
+  var GRID_SORT = { 'theta-grid': 'desc', 'delta-grid': 'desc', 'gamma-grid': 'asc', 'vega-grid': 'asc' };
+
+  // Grid tables: always sorted by greek value using GRID_SORT direction.
+  function gridInsertBefore(tbody, newValue, sectionType) {
     var totalRow = findTotalRow(tbody);
-    var rows = Array.from(tbody.querySelectorAll('tr:not(.exp-divider)'));
-    if (existsAlready) {
-      var lastMatch = null;
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i] === totalRow) break;
-        var sym = rows[i].querySelector('td.sym');
-        if (sym && sym.textContent.trim().indexOf(underlying) === 0) lastMatch = rows[i];
+    var dir = GRID_SORT[sectionType];
+    if (dir && newValue !== undefined) {
+      var desc = dir === 'desc';
+      var rows = Array.from(tbody.querySelectorAll('tr:not(.exp-divider)'));
+      var dataRows = rows.filter(function (r) {
+        return r !== totalRow && !r.classList.contains('wi-row');
+      });
+      for (var k = 0; k < dataRows.length; k++) {
+        var tcol = dataRows[k].querySelector('td.tcol');
+        if (!tcol) continue;
+        var rv = parseFloat(tcol.textContent);
+        if (isNaN(rv)) continue;
+        if (desc  && newValue > rv) return dataRows[k];
+        if (!desc && newValue < rv) return dataRows[k];
       }
-      return (lastMatch && lastMatch.nextSibling) ? lastMatch.nextSibling : totalRow;
-    } else {
-      for (var j = 0; j < rows.length; j++) {
-        if (rows[j] === totalRow) return totalRow;
-        var sym2 = rows[j].querySelector('td.sym');
-        if (sym2 && sym2.textContent.trim() > underlying) return rows[j];
-      }
-      return totalRow;
     }
+    return totalRow;
   }
 
   // ── Per-type injection ─────────────────────────────────────────────────────
@@ -410,7 +421,7 @@
       tr.appendChild(totalTd);
     }
 
-    var before = gridInsertBefore(tbody, sp.underlying, existsAlready);
+    var before = gridInsertBefore(tbody, value, type);
     before ? tbody.insertBefore(tr, before) : tbody.appendChild(tr);
     updateGridTotals(tbody, dec);
   }
@@ -480,14 +491,22 @@
     return new Date(str.replace(/'(\d{2})/, '20$1'));
   }
 
+  // Returns the next non-wi-row sibling, or fallback if none found.
+  function nextNonWi(row, fallback) {
+    var ref = row ? row.nextElementSibling : null;
+    while (ref && ref.classList.contains('wi-row')) ref = ref.nextElementSibling;
+    return ref || fallback;
+  }
+
   function scorecardInsertBefore(tbody, sp) {
     var totalRow  = findTotalRow(tbody);
     var spExpFmt  = fmtExp(sp.expiration);
     var spExpDate = new Date(sp.expiration);
     var rows = Array.from(tbody.querySelectorAll('tr:not(.exp-divider):not(.wi-row)'));
+    var lastMatchRow = null;
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      if (row === totalRow) return totalRow;
+      if (row === totalRow) break;
       var expTd = row.querySelector('td.expd');
       if (!expTd) continue;
       var rowExpFmt = expTd.textContent.trim();
@@ -496,13 +515,17 @@
         var thetaTd = row.querySelectorAll('td')[8];
         var rowTheta = thetaTd ? (parseFloat(thetaTd.textContent) || 0) : 0;
         if (sp.theta > rowTheta) return row;
+        lastMatchRow = row;
       } else {
-        // Different group — insert before first group with a later date
+        // Moving past the matching expiration group — insert after its last row
+        if (lastMatchRow) return nextNonWi(lastMatchRow, totalRow);
+        // Haven't seen matching group yet — insert before first group with a later date
         var rowExpDate = parseFormattedExp(rowExpFmt);
         if (!isNaN(rowExpDate) && !isNaN(spExpDate) && spExpDate < rowExpDate) return row;
       }
     }
-    return totalRow;
+    // End of data rows — insert at end of matching group (before its trailing divider)
+    return lastMatchRow ? nextNonWi(lastMatchRow, totalRow) : totalRow;
   }
 
   function injectScorecard(tbody, id, sp, color) {
@@ -565,6 +588,8 @@
     else if (type === 'gamma-combined')   injectGrid(section, tbody, id, sp, sp.gamma, dec, color);
     else if (type === 'theta-grid')       injectGrid(section, tbody, id, sp, sp.theta, dec, color);
     else if (type === 'vega-grid')        injectGrid(section, tbody, id, sp, sp.vega,  dec, color);
+    else if (type === 'delta-grid')       injectGrid(section, tbody, id, sp, sp.delta, dec, color);
+    else if (type === 'gamma-grid')       injectGrid(section, tbody, id, sp, sp.gamma, dec, color);
     else if (type === 'quality-tg')       injectIndividual(section, tbody, id, sp.tgRatio, sp, 3, color);
     else if (type === 'quality-tv')       injectIndividual(section, tbody, id, sp.tvRatio, sp, 3, color);
     else if (type === 'scorecard')        injectScorecard(tbody, id, sp, color);

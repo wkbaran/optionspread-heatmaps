@@ -12,9 +12,6 @@ if [[ -z "$csv" ]]; then
 fi
 
 echo "==> CSV: $csv"
-echo "==> Generating heatmaps..."
-node index.js "$csv"
-
 echo "==> Generating portfolio..."
 node portfolio.js "$csv"
 

@@ -14,9 +14,8 @@ cp .env.example .env # add your OptionStrat credentials
 
 | Script | Input | Output |
 |---|---|---|
-| `run.sh` | — | Full pipeline: download, convert, heatmaps, portfolio |
+| `run.sh` | — | Full pipeline: download, convert, portfolio |
 | `download.js` | — | `data/*.csv` (downloads Group: Live from OptionStrat, converts xlsx → csv) |
-| `index.js <csv>` | CSV file | `reports/*-heatmaps.html` |
 | `portfolio.js <csv>` | CSV file | `reports/*-portfolio.html`, `reports/*-portfolio.json` |
 | `whatif.js` | — | Embedded in every HTML report (client-side what-if logic) |
 
@@ -60,21 +59,19 @@ Every generated HTML report contains a **What-if** panel at the top. Paste a spr
 
 This lets you see exactly how a prospective trade would change your greek concentrations, quality rankings, and scorecard before entering the position.
 
-## Heatmaps — `index.js`
-
-**Position Deltas / Gammas (Individual)**
-Each spread as a row, sorted by value. Color encodes the greek — green for positive, red for negative, scaled to the range of the data.
-
-**Combined Delta / Gamma by Underlying × Expiration**
-2D grid with underlying symbols as rows and expiration dates as columns. Cell color = summed greek for that ticker and expiry. Includes row totals and a grand total footer row for delta.
-
 ## Portfolio analysis — `portfolio.js`
 
 **Theta Concentration**
-Daily time decay by underlying × expiration. Green = more theta collected. Grand total = how much the whole book earns per day from time decay.
+Daily time decay by underlying × expiration. Green = more theta collected. Rows sorted by theta total descending. Grand total = how much the whole book earns per day from time decay.
 
 **Vega Concentration**
-Short-volatility risk by underlying × expiration. All values are negative (credit spreads are short premium = short vega). More red = more exposure to a volatility spike. Grand total = approximate dollar loss across the book per 1% rise in IV.
+Short-volatility risk by underlying × expiration. All values are negative (credit spreads are short premium = short vega). More red = more exposure to a volatility spike. Rows sorted by vega total ascending (most exposed first). Grand total = approximate dollar loss across the book per 1% rise in IV.
+
+**Delta Concentration**
+Net directional exposure by underlying × expiration. Bull Put spreads contribute positive delta, Bear Call spreads contribute negative delta. Diverging color scale (green = positive, red = negative). Rows sorted by delta total descending (most positive first).
+
+**Gamma Concentration**
+Convexity risk by underlying × expiration. All values are negative (credit spreads are short gamma). More red = more exposure to large moves in either direction. Rows sorted by gamma total ascending (most exposed first).
 
 **Theta / |Gamma| Quality**
 Each spread ranked by daily theta earned per unit of gamma risk. Higher is better — the position is well-compensated for its convexity exposure. Useful for identifying positions to close to free up capital. Positions with gamma = 0 are listed at the bottom.

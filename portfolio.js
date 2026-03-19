@@ -115,9 +115,8 @@ function fmtExp(exp) {
 
 // ── Section 1 & 2: Concentration grids (underlying × expiration) ─────────────
 
-function concentrationGrid(spreads, key, title, colorFn, subtitle) {
+function concentrationGrid(spreads, key, title, colorFn, subtitle, sortDir) {
   const sectionId = key + '-grid';
-  const underlyings = [...new Set(spreads.map(s => s.underlying))].sort();
   const expirations = [...new Set(spreads.map(s => s.expiration))]
     .sort((a, b) => new Date(a) - new Date(b));
 
@@ -131,6 +130,13 @@ function concentrationGrid(spreads, key, title, colorFn, subtitle) {
   const gMin     = Math.min(...allVals);
   const gMax     = Math.max(...allVals);
   const gAbsMax  = Math.max(Math.abs(gMin), Math.abs(gMax), 1e-9);
+
+  const underlyings = [...new Set(spreads.map(s => s.underlying))];
+  underlyings.sort((a, b) => {
+    const ta = expirations.reduce((sum, e) => sum + (grid[`${a}||${e}`] || 0), 0);
+    const tb = expirations.reduce((sum, e) => sum + (grid[`${b}||${e}`] || 0), 0);
+    return sortDir === 'asc' ? ta - tb : tb - ta;
+  });
 
   const headerCells = expirations.map(e => `<th data-exp="${e}">${fmtExp(e)}</th>`).join('');
 
@@ -533,7 +539,7 @@ const html = `<!DOCTYPE html>
     td.na   { color: #444; text-align: center; background: #10151f; }
     td.empty { background: #0a0e1a; min-width: 64px; }
     td.tcol { border-left: 2px solid #f0a500; font-weight: 700; text-align: right; }
-    td.trow { border-top: 2px solid #f0a500; font-weight: 700; text-align: right; }
+    td.trow { position: relative; border-top: 2px solid #f0a500; font-weight: 700; text-align: right; }
     td.trow.na { border-top: 2px solid #f0a500; }
     th.tcol { border-left: 2px solid #f0a500; }
     tr.exp-divider td { padding: 2px 0; background: #0a0e1a; border: none; }
@@ -614,15 +620,16 @@ const html = `<!DOCTYPE html>
     #wi-btn:hover { background: #f5b830; }
     #wi-hint { font-size: 10px; color: #555; margin-top: 7px; }
     tr.wi-row { --wi-accent: #f0a500; --wi-bg: rgba(240,165,0,.10); }
-    tr.wi-row td { border-top-color: var(--wi-accent) !important; border-bottom-color: var(--wi-accent) !important; }
-    tr.wi-row td:first-child { border-left: 2px solid var(--wi-accent) !important; }
-    tr.wi-row td:last-child  { border-right: 2px solid var(--wi-accent) !important; }
+    tr.wi-row td { border-top: 3px solid var(--wi-accent) !important; border-bottom: 3px solid var(--wi-accent) !important; }
+    tr.wi-row td:first-child { border-left: 3px solid var(--wi-accent) !important; }
+    tr.wi-row td:last-child  { border-right: 3px solid var(--wi-accent) !important; }
     tr.wi-row:hover td { filter: brightness(1.15); }
+    tr.wi-row + tr td.trow::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #f0a500; pointer-events: none; }
   </style>
 </head>
 <body>
 <h1>Portfolio Analysis &mdash; ${basename}</h1>
-<p class="page-sub">Theta &middot; Vega &middot; Quality &middot; Scorecard</p>
+<p class="page-sub">Theta &middot; Vega &middot; Delta &middot; Gamma &middot; Quality &middot; Scorecard</p>
 <div id="wi-panel">
   <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
   <div id="wi-row">
@@ -636,14 +643,32 @@ ${concentrationGrid(
   spreads, 'theta',
   'Theta Concentration',
   (v, min, max, absMax) => cGreen(v, max),
-  'Daily time decay accrual by underlying and expiration. Grand total = portfolio theta.'
+  'Daily time decay accrual by underlying and expiration. Sorted by row total descending. Grand total = portfolio theta.',
+  'desc'
+)}
+
+${concentrationGrid(
+  spreads, 'delta',
+  'Delta Concentration — Directional Exposure',
+  (v, min, max, absMax) => cDiverging(v, min, max),
+  'Net directional exposure by underlying and expiration. Bull Put spreads are positive delta, Bear Call spreads are negative. Sorted most positive first.',
+  'desc'
+)}
+
+${concentrationGrid(
+  spreads, 'gamma',
+  'Gamma Concentration — Convexity Risk',
+  (v, min, max, absMax) => cRed(Math.abs(v), absMax),
+  'All values are negative (credit spreads are short gamma). More red = more exposure to large moves in either direction. Sorted by row total ascending (most exposed first).',
+  'asc'
 )}
 
 ${concentrationGrid(
   spreads, 'vega',
   'Vega Concentration — Short Volatility Risk',
   (v, min, max, absMax) => cRed(Math.abs(v), absMax),
-  'All values are negative (short premium = short vega). More red = more exposure to a volatility spike. Grand total = how much the book loses per 1% rise in IV across all positions.'
+  'All values are negative (short premium = short vega). Sorted by row total ascending (most exposed first). Grand total = how much the book loses per 1% rise in IV across all positions.',
+  'asc'
 )}
 
 ${qualityList(spreads)}
