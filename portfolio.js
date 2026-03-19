@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-const fs   = require('fs');
-const path = require('path');
+const fs       = require('fs');
+const path     = require('path');
+const wiScript = fs.readFileSync(path.join(__dirname, 'whatif.js'), 'utf8');
 
 const csvFile = process.argv[2];
 if (!csvFile) { console.error('Usage: node portfolio.js <csv-file>'); process.exit(1); }
@@ -115,6 +116,7 @@ function fmtExp(exp) {
 // ── Section 1 & 2: Concentration grids (underlying × expiration) ─────────────
 
 function concentrationGrid(spreads, key, title, colorFn, subtitle) {
+  const sectionId = key + '-grid';
   const underlyings = [...new Set(spreads.map(s => s.underlying))].sort();
   const expirations = [...new Set(spreads.map(s => s.expiration))]
     .sort((a, b) => new Date(a) - new Date(b));
@@ -130,7 +132,7 @@ function concentrationGrid(spreads, key, title, colorFn, subtitle) {
   const gMax     = Math.max(...allVals);
   const gAbsMax  = Math.max(Math.abs(gMin), Math.abs(gMax), 1e-9);
 
-  const headerCells = expirations.map(e => `<th>${fmtExp(e)}</th>`).join('');
+  const headerCells = expirations.map(e => `<th data-exp="${e}">${fmtExp(e)}</th>`).join('');
 
   const bodyRows = underlyings.map(u => {
     const rowTotal = expirations.reduce((sum, e) => sum + (grid[`${u}||${e}`] || 0), 0);
@@ -157,7 +159,7 @@ function concentrationGrid(spreads, key, title, colorFn, subtitle) {
   const gtBg = colorFn(grandTotal, gMin, gMax, gAbsMax);
 
   return `
-<section>
+<section data-section="${sectionId}">
   <h2>${title}</h2>
   ${subtitle ? `<p class="subtitle">${subtitle}</p>` : ''}
   <table>
@@ -201,7 +203,7 @@ function qualityList(spreads) {
   }).join('\n');
 
   return `
-<section>
+<section data-section="quality-tg">
   <h2>Theta / |Gamma| Quality</h2>
   <p class="subtitle">Daily time decay collected per unit of convexity risk. Higher = better compensated. Sorted best &rarr; worst.</p>
   <table>
@@ -239,7 +241,7 @@ function vegaQualityList(spreads) {
   }).join('\n');
 
   return `
-<section>
+<section data-section="quality-tv">
   <h2>Theta / |Vega| Quality</h2>
   <p class="subtitle">Daily time decay collected per unit of volatility exposure. Higher = better compensated for a vol spike. Sorted best &rarr; worst.</p>
   <table>
@@ -350,7 +352,7 @@ function scorecard(spreads) {
   }).join('');
 
   return `
-<section>
+<section data-section="scorecard">
   <h2>Position Scorecard</h2>
   <p class="subtitle">Each column normalized independently. Grouped by expiration, sorted by Theta within each group.</p>
   <table>
@@ -598,11 +600,37 @@ const html = `<!DOCTYPE html>
     }
     .badge.bull { background: rgba(40,180,40,.18); color: rgb(80,210,80); border: 1px solid rgba(80,210,80,.3); }
     .badge.bear { background: rgba(220,60,60,.18); color: rgb(240,100,100); border: 1px solid rgba(220,60,60,.3); }
+    /* ── What-if panel ── */
+    #wi-panel { background: #10151f; border: 1px solid #2a3040; border-radius: 8px; padding: 14px 18px; margin-bottom: 28px; }
+    #wi-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    #wi-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .wi-pill { display: inline-flex; align-items: center; gap: 5px; background: var(--wi-bg); border: 1px solid var(--wi-accent); border-radius: 20px; padding: 3px 8px 3px 11px; font-size: 11px; color: var(--wi-accent); font-weight: 600; }
+    .wi-pill button { background: none; border: none; color: var(--wi-accent); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; opacity: .7; }
+    .wi-pill button:hover { opacity: 1; }
+    #wi-row { display: flex; gap: 8px; }
+    #wi-input { flex: 1; background: #0a0e1a; border: 1px solid #2a3040; border-radius: 6px; color: #c9d1d9; font-family: 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; padding: 7px 12px; outline: none; transition: border-color .15s; }
+    #wi-input:focus { border-color: #f0a500; }
+    #wi-btn { background: #f0a500; border: none; border-radius: 6px; color: #0a0e1a; cursor: pointer; font-size: 12px; font-weight: 700; padding: 7px 16px; letter-spacing: .04em; transition: background .15s; }
+    #wi-btn:hover { background: #f5b830; }
+    #wi-hint { font-size: 10px; color: #555; margin-top: 7px; }
+    tr.wi-row { --wi-accent: #f0a500; --wi-bg: rgba(240,165,0,.10); }
+    tr.wi-row td { border-top-color: var(--wi-accent) !important; border-bottom-color: var(--wi-accent) !important; }
+    tr.wi-row td:first-child { border-left: 2px solid var(--wi-accent) !important; }
+    tr.wi-row td:last-child  { border-right: 2px solid var(--wi-accent) !important; }
+    tr.wi-row:hover td { filter: brightness(1.15); }
   </style>
 </head>
 <body>
 <h1>Portfolio Analysis &mdash; ${basename}</h1>
 <p class="page-sub">Theta &middot; Vega &middot; Quality &middot; Scorecard</p>
+<div id="wi-panel">
+  <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
+  <div id="wi-row">
+    <input id="wi-input" type="text" placeholder="Paste a spread CSV row to model it as a what-if…" spellcheck="false" autocomplete="off" />
+    <button id="wi-btn">Add</button>
+  </div>
+  <p id="wi-hint">Paste a spread row from the exported CSV. Press Enter or click Add. Each spread appears as a pill above and is highlighted in every table below.</p>
+</div>
 
 ${concentrationGrid(
   spreads, 'theta',
@@ -624,6 +652,7 @@ ${vegaQualityList(spreads)}
 
 ${scorecard(spreads)}
 
+<script>${wiScript}</script>
 </body>
 </html>`;
 

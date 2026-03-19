@@ -35,12 +35,14 @@ function xlsxToCsv(xlsxBuffer) {
     console.error('Navigating to OptionStrat...');
     await page.goto('https://optionstrat.com', { waitUntil: 'networkidle' });
 
-    // Check if already logged in
-    const loggedIn = await page.locator('text=My Account').isVisible().catch(() => false);
+    // Wait for the page JS to settle and populate the nav (My Account = logged in, Log In = not)
+    // Use 'attached' state because nav items may be hidden via CSS on certain breakpoints
+    await page.waitForSelector(':text("My Account"), :text("Log In")', { state: 'attached', timeout: 15000 });
+    const loggedIn = (await page.locator(':text("My Account")').count()) > 0;
 
     if (!loggedIn) {
       console.error('Session expired or missing — logging in...');
-      await page.click('text=Log In');
+      await page.locator(':text("Log In")').first().click({ force: true });
       await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="mail" i]');
 
       await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', EMAIL);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
+const wiScript = fs.readFileSync(path.join(__dirname, 'whatif.js'), 'utf8');
 
 const csvFile = process.argv[2];
 if (!csvFile) {
@@ -113,7 +114,7 @@ function individualHeatmap(spreads, key, title, showTotal = false) {
   }
 
   return `
-<section>
+<section data-section="${key}-individual">
   <h2>${title}</h2>
   <div class="legend">
     <span class="leg-neg">Negative</span>
@@ -155,7 +156,7 @@ function combinedHeatmap(spreads, key, title, showTotal = false) {
     ? Math.max(absMax, ...Object.values(expTotals).map(Math.abs), 1e-9)
     : absMax;
 
-  const headerCells = expirations.map(e => `<th>${fmtExp(e)}</th>`).join('');
+  const headerCells = expirations.map(e => `<th data-exp="${e}">${fmtExp(e)}</th>`).join('');
   const totalHeader = showTotal ? '<th class="total-col">Total</th>' : '';
 
   const bodyRows = underlyings.map(u => {
@@ -198,7 +199,7 @@ function combinedHeatmap(spreads, key, title, showTotal = false) {
   }
 
   return `
-<section>
+<section data-section="${key}-combined">
   <h2>${title}</h2>
   <div class="legend">
     <span class="leg-neg">Negative</span>
@@ -304,16 +305,43 @@ const html = `<!DOCTYPE html>
     .leg-neg { color: rgb(255,120,120); font-weight: 600; }
     .leg-pos { color: rgb(80,210,80);   font-weight: 600; }
     .leg-range { color: #555; }
-    td.total-row, td.total-col { font-weight: 700; border-top: 2px solid #58a6ff; }
+    td.total-row, td.total-col { font-weight: 700; border-top: 2px solid #58a6ff; text-align: right; }
     td.total-col { border-left: 2px solid #58a6ff; }
+    /* ── What-if panel ── */
+    #wi-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; margin-bottom: 28px; }
+    #wi-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    #wi-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .wi-pill { display: inline-flex; align-items: center; gap: 5px; background: var(--wi-bg); border: 1px solid var(--wi-accent); border-radius: 20px; padding: 3px 8px 3px 11px; font-size: 11px; color: var(--wi-accent); font-weight: 600; }
+    .wi-pill button { background: none; border: none; color: var(--wi-accent); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; opacity: .7; }
+    .wi-pill button:hover { opacity: 1; }
+    #wi-row { display: flex; gap: 8px; }
+    #wi-input { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-family: 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; padding: 7px 12px; outline: none; transition: border-color .15s; }
+    #wi-input:focus { border-color: #58a6ff; }
+    #wi-btn { background: #58a6ff; border: none; border-radius: 6px; color: #0d1117; cursor: pointer; font-size: 12px; font-weight: 700; padding: 7px 16px; letter-spacing: .04em; transition: background .15s; }
+    #wi-btn:hover { background: #79b8ff; }
+    #wi-hint { font-size: 10px; color: #555; margin-top: 7px; }
+    tr.wi-row { --wi-accent: #58a6ff; --wi-bg: rgba(88,166,255,.10); }
+    tr.wi-row td { border-top-color: var(--wi-accent) !important; border-bottom-color: var(--wi-accent) !important; }
+    tr.wi-row td:first-child { border-left: 2px solid var(--wi-accent) !important; }
+    tr.wi-row td:last-child  { border-right: 2px solid var(--wi-accent) !important; }
+    tr.wi-row:hover td { filter: brightness(1.15); }
   </style>
 </head>
 <body>
 <h1>Options Spread Heatmaps &mdash; ${basename}</h1>
+<div id="wi-panel">
+  <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
+  <div id="wi-row">
+    <input id="wi-input" type="text" placeholder="Paste a spread CSV row to model it as a what-if…" spellcheck="false" autocomplete="off" />
+    <button id="wi-btn">Add</button>
+  </div>
+  <p id="wi-hint">Paste a spread row from the exported CSV. Press Enter or click Add. Each spread appears as a pill above and is highlighted in every table below.</p>
+</div>
 ${individualHeatmap(spreads, 'delta', 'Position Deltas — Individual', true)}
 ${individualHeatmap(spreads, 'gamma', 'Position Gammas — Individual')}
 ${combinedHeatmap(spreads, 'delta', 'Combined Delta by Underlying × Expiration', true)}
 ${combinedHeatmap(spreads, 'gamma', 'Combined Gamma by Underlying × Expiration')}
+<script>${wiScript}</script>
 </body>
 </html>`;
 

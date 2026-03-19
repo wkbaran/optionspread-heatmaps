@@ -18,6 +18,7 @@ cp .env.example .env # add your OptionStrat credentials
 | `download.js` | — | `data/*.csv` (downloads Group: Live from OptionStrat, converts xlsx → csv) |
 | `index.js <csv>` | CSV file | `reports/*-heatmaps.html` |
 | `portfolio.js <csv>` | CSV file | `reports/*-portfolio.html`, `reports/*-portfolio.json` |
+| `whatif.js` | — | Embedded in every HTML report (client-side what-if logic) |
 
 After each run, `reports/index.html` is fully regenerated listing all current reports.
 
@@ -39,6 +40,8 @@ OPTIONSTRAT_PASSWORD=yourpassword
 
 Set `HEADLESS=false` to watch the browser during a run.
 
+The browser session is persisted to `.session.json` after the first successful login. Subsequent runs reuse the session and skip the login flow as long as the session remains valid. The file is gitignored.
+
 ### Security note
 
 `npm ci` is intentional: it treats `package-lock.json` as authoritative and fails if anything drifts, preventing a compromised upstream package version from silently entering the build. Never use `npm install` on this project.
@@ -50,6 +53,12 @@ Set `HEADLESS=false` to watch the browser during a run.
 3. Convert the xlsx to CSV and pass it to `index.js` or `portfolio.js`
 
 Individual option legs and non-spread positions are filtered out automatically. Only spreads are included.
+
+## What-if modeling
+
+Every generated HTML report contains a **What-if** panel at the top. Paste a spread row from the OptionStrat CSV export (or copy directly from Excel — tab-separated format is also accepted) and click **Add**. The row is inserted into every table in the correct sorted position and highlighted with a colored border. A pill appears at the top for each added spread; click its **×** to remove that spread from all tables. Multiple spreads can be modeled simultaneously. All totals update automatically when rows are added or removed.
+
+This lets you see exactly how a prospective trade would change your greek concentrations, quality rankings, and scorecard before entering the position.
 
 ## Heatmaps — `index.js`
 
@@ -98,4 +107,4 @@ An expandable column guide at the bottom of the scorecard explains EV and all co
 
 ## Requirements
 
-Node.js 20.6+. One npm dependency: `xlsx` (SheetJS) for xlsx → csv conversion.
+Node.js 20.6+. Dependencies: `playwright` (browser automation for `download.js`) and `xlsx` (SheetJS, xlsx → csv conversion).
