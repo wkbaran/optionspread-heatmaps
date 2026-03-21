@@ -1,6 +1,8 @@
-# optionspread-heatmaps
+# OptionSpread Heatmaps
 
-Generates heatmap and portfolio analysis visualizations from options spread exports from [OptionStrat](https://optionstrat.com).
+Greek concentration heatmaps and portfolio analysis for options credit spreads, powered by [OptionStrat](https://optionstrat.com) exports.
+
+![Portfolio preview](preview.png)
 
 ## Quick start
 
