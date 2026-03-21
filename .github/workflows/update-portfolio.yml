@@ -1,0 +1,56 @@
+name: Update Portfolio
+
+on:
+  schedule:
+    # Cover both MST (UTC-7) and MDT (UTC-6) for 7:45 AM and 1:45 PM Mountain
+    - cron: '45 13 * * 1-5'  # 7:45 AM MDT
+    - cron: '45 14 * * 1-5'  # 7:45 AM MST
+    - cron: '45 19 * * 1-5'  # 1:45 PM MDT
+    - cron: '45 20 * * 1-5'  # 1:45 PM MST
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.54.1-noble
+    steps:
+      - name: Check if correct Mountain Time hour
+        if: github.event_name == 'schedule'
+        run: |
+          export TZ=America/Denver
+          MOUNTAIN_HOUR=$(date +%-H)
+          echo "Mountain time hour: $MOUNTAIN_HOUR"
+          if [ "$MOUNTAIN_HOUR" != "7" ] && [ "$MOUNTAIN_HOUR" != "13" ]; then
+            echo "Not the right hour for Mountain Time — skipping"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run download and portfolio generation
+        env:
+          OPTIONSTRAT_EMAIL: ${{ secrets.OPTIONSTRAT_EMAIL }}
+          OPTIONSTRAT_PASSWORD: ${{ secrets.OPTIONSTRAT_PASSWORD }}
+          HEADLESS: 'true'
+        run: |
+          # Create .env for download.js (uses --env-file=.env)
+          echo "OPTIONSTRAT_EMAIL=${OPTIONSTRAT_EMAIL}" > .env
+          echo "OPTIONSTRAT_PASSWORD=${OPTIONSTRAT_PASSWORD}" >> .env
+          bash run.sh
+
+      - name: Commit and push results
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/ reports/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update portfolio data $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
