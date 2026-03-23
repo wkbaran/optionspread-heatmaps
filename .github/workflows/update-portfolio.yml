@@ -2,11 +2,11 @@ name: Update Portfolio
 
 on:
   schedule:
-    # Cover both MST (UTC-7) and MDT (UTC-6) for 7:45 AM and 1:45 PM Mountain
+    # Cover both MST (UTC-7) and MDT (UTC-6) for 7:45 AM and 1:25 PM Mountain
     - cron: '45 13 * * 1-5'  # 7:45 AM MDT
     - cron: '45 14 * * 1-5'  # 7:45 AM MST
-    - cron: '45 19 * * 1-5'  # 1:45 PM MDT
-    - cron: '45 20 * * 1-5'  # 1:45 PM MST
+    - cron: '25 19 * * 1-5'  # 1:25 PM MDT
+    - cron: '25 20 * * 1-5'  # 1:25 PM MST
   workflow_dispatch: # allow manual trigger
 
 permissions:
@@ -24,7 +24,8 @@ jobs:
           export TZ=America/Denver
           MOUNTAIN_HOUR=$(date +%-H)
           echo "Mountain time hour: $MOUNTAIN_HOUR"
-          if [ "$MOUNTAIN_HOUR" != "7" ] && [ "$MOUNTAIN_HOUR" != "13" ]; then
+          # Accept the target hour or the next hour (GitHub Actions cron can be delayed)
+          if [ "$MOUNTAIN_HOUR" != "7" ] && [ "$MOUNTAIN_HOUR" != "8" ] && [ "$MOUNTAIN_HOUR" != "13" ] && [ "$MOUNTAIN_HOUR" != "14" ]; then
             echo "Not the right hour for Mountain Time — skipping"
             exit 1
           fi
