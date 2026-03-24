@@ -18,15 +18,24 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.54.1-noble
     steps:
-      - name: Check if correct Mountain Time hour
+      - name: Check if correct Mountain Time window
         if: github.event_name == 'schedule'
         run: |
           export TZ=America/Denver
           MOUNTAIN_HOUR=$(date +%-H)
-          echo "Mountain time hour: $MOUNTAIN_HOUR"
-          # Accept the target hour or the next hour (GitHub Actions cron can be delayed)
-          if [ "$MOUNTAIN_HOUR" != "7" ] && [ "$MOUNTAIN_HOUR" != "8" ] && [ "$MOUNTAIN_HOUR" != "13" ] && [ "$MOUNTAIN_HOUR" != "14" ]; then
-            echo "Not the right hour for Mountain Time — skipping"
+          MOUNTAIN_MIN=$(date +%-M)
+          CURRENT_MINS=$((MOUNTAIN_HOUR * 60 + MOUNTAIN_MIN))
+          echo "Mountain time: $MOUNTAIN_HOUR:$(printf '%02d' $MOUNTAIN_MIN) ($CURRENT_MINS mins since midnight)"
+
+          # Target times: 7:45 (465 min) and 13:25 (805 min)
+          # Accept within 45-min window after target — enough for GHA delay,
+          # but less than 60 min so the wrong DST cron (1 hour off) is rejected
+          MORNING_DIFF=$((CURRENT_MINS - 465))
+          AFTERNOON_DIFF=$((CURRENT_MINS - 805))
+
+          if ! { [ "$MORNING_DIFF" -ge 0 ] && [ "$MORNING_DIFF" -le 45 ]; } && \
+             ! { [ "$AFTERNOON_DIFF" -ge 0 ] && [ "$AFTERNOON_DIFF" -le 45 ]; }; then
+            echo "Outside acceptable Mountain Time window — skipping"
             exit 1
           fi
 
