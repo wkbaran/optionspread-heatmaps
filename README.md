@@ -32,16 +32,17 @@ reports/    generated HTML reports, JSON snapshots, and index.html (gitignored)
 
 ## Automated download
 
-`download.js` uses Playwright to log in to OptionStrat, navigate to Saved Trades (Group: Live), trigger the export, download the xlsx, convert it to CSV, and delete the xlsx. Credentials are read from `.env`:
+`download.js` logs in to OptionStrat via its API, exports the Saved Trades (Group: Live) as xlsx, converts it to CSV, and deletes the xlsx. Credentials are read from `.env`:
 
 ```
 OPTIONSTRAT_EMAIL=you@example.com
 OPTIONSTRAT_PASSWORD=yourpassword
+OPTIONSTRAT_ACCOUNT_ID=your-account-uuid
 ```
 
-Set `HEADLESS=false` to watch the browser during a run.
+The account ID is the UUID for your "Live" group on OptionStrat.
 
-The browser session is persisted to `.session.json` after the first successful login. Subsequent runs reuse the session and skip the login flow as long as the session remains valid. The file is gitignored.
+The session cookie is persisted to `.session.json` after the first successful login. Subsequent runs reuse the session and skip the login flow as long as the session remains valid. The file is gitignored.
 
 ### Security note
 
@@ -106,4 +107,4 @@ An expandable column guide at the bottom of the scorecard explains EV and all co
 
 ## Requirements
 
-Node.js 20.6+. Dependencies: `playwright` (browser automation for `download.js`) and `xlsx` (SheetJS, xlsx → csv conversion).
+Node.js 20.6+. Dependencies: `xlsx` (SheetJS, xlsx → csv conversion). No browser or Playwright needed — downloads use the OptionStrat API directly.

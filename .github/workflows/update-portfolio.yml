@@ -39,52 +39,24 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - name: Cache Playwright Docker image
-        id: cache-playwright
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v4
         with:
-          path: /tmp/playwright-image.tar
-          key: playwright-v1.54.1-noble
+          node-version: '22'
+          cache: 'npm'
 
-      - name: Pull and save Playwright image
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
-        run: |
-          docker pull mcr.microsoft.com/playwright:v1.54.1-noble
-          docker save mcr.microsoft.com/playwright:v1.54.1-noble -o /tmp/playwright-image.tar
-
-      - name: Load Playwright image from cache
-        if: steps.cache-playwright.outputs.cache-hit == 'true'
-        run: docker load -i /tmp/playwright-image.tar
-
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: .npm-cache
-          key: npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run download and portfolio generation
         env:
           OPTIONSTRAT_EMAIL: ${{ secrets.OPTIONSTRAT_EMAIL }}
           OPTIONSTRAT_PASSWORD: ${{ secrets.OPTIONSTRAT_PASSWORD }}
+          OPTIONSTRAT_ACCOUNT_ID: ${{ secrets.OPTIONSTRAT_ACCOUNT_ID }}
         run: |
-          docker run --rm \
-            -v "${{ github.workspace }}:/work" \
-            -v "${{ github.workspace }}/.npm-cache:/root/.npm" \
-            -w /work \
-            -e OPTIONSTRAT_EMAIL \
-            -e OPTIONSTRAT_PASSWORD \
-            -e HEADLESS=true \
-            mcr.microsoft.com/playwright:v1.54.1-noble \
-            bash -c '
-              echo "OPTIONSTRAT_EMAIL=${OPTIONSTRAT_EMAIL}" > .env
-              echo "OPTIONSTRAT_PASSWORD=${OPTIONSTRAT_PASSWORD}" >> .env
-              npm ci
-              bash run.sh
-            '
-
-      - name: Fix file ownership
-        run: sudo chown -R $(id -u):$(id -g) .
+          echo "OPTIONSTRAT_EMAIL=${OPTIONSTRAT_EMAIL}" > .env
+          echo "OPTIONSTRAT_PASSWORD=${OPTIONSTRAT_PASSWORD}" >> .env
+          echo "OPTIONSTRAT_ACCOUNT_ID=${OPTIONSTRAT_ACCOUNT_ID}" >> .env
+          bash run.sh
 
       - name: Commit and push results
         run: |

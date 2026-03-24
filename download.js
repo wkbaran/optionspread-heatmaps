@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 'use strict';
 
-const { chromium } = require('playwright');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
 const EMAIL = process.env.OPTIONSTRAT_EMAIL;
 const PASSWORD = process.env.OPTIONSTRAT_PASSWORD;
-const HEADLESS = process.env.HEADLESS !== 'false';
+const ACCOUNT_ID = process.env.OPTIONSTRAT_ACCOUNT_ID;
 const SESSION_FILE = path.join(__dirname, '.session.json');
+const BASE_URL = 'https://optionstrat.com';
+const API_HEADERS = { 'Content-Type': 'application/json', 'x-version': '1.9' };
 
-if (!EMAIL || !PASSWORD) {
-  console.error('Missing OPTIONSTRAT_EMAIL or OPTIONSTRAT_PASSWORD in .env');
+if (!EMAIL || !PASSWORD || !ACCOUNT_ID) {
+  console.error('Missing OPTIONSTRAT_EMAIL, OPTIONSTRAT_PASSWORD, or OPTIONSTRAT_ACCOUNT_ID in .env');
   process.exit(1);
 }
-
 
 function xlsxToCsv(xlsxBuffer) {
   const workbook = XLSX.read(xlsxBuffer, { type: 'buffer' });
@@ -23,92 +23,96 @@ function xlsxToCsv(xlsxBuffer) {
   return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
 }
 
-(async () => {
-  const sessionExists = fs.existsSync(SESSION_FILE);
-  const browser = await chromium.launch({ headless: HEADLESS });
-  const context = await browser.newContext(
-    sessionExists ? { storageState: SESSION_FILE } : {}
-  );
-  const page = await context.newPage();
-
+function loadSessionCookie() {
   try {
-    console.error('Navigating to OptionStrat...');
-    await page.goto('https://optionstrat.com', { waitUntil: 'networkidle' });
-
-    // Wait for the page JS to settle and populate the nav (My Account = logged in, Log In = not)
-    // Use 'attached' state because nav items may be hidden via CSS on certain breakpoints
-    await page.waitForSelector(':text("My Account"), :text("Log In")', { state: 'attached', timeout: 15000 });
-    const loggedIn = (await page.locator(':text("My Account")').count()) > 0;
-
-    if (!loggedIn) {
-      console.error('Session expired or missing — logging in...');
-      await page.locator(':text("Log In")').first().click({ force: true });
-      await page.waitForSelector('input[type="email"], input[name="email"], input[placeholder*="mail" i]');
-
-      await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', EMAIL);
-      await page.fill('input[type="password"]', PASSWORD);
-      await page.click('button[type="submit"], button:has-text("Log In")');
-
-      await page.waitForSelector('text=My Account', { timeout: 15000 });
-      console.error('Logged in. Saving session...');
-      await context.storageState({ path: SESSION_FILE });
-    } else {
-      console.error('Resumed existing session.');
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+    // Support old Playwright storageState format
+    if (data.cookies) {
+      const sid = data.cookies.find(c => c.name === 'sid');
+      return sid?.value || null;
     }
-
-    // Navigate directly to saved trades
-    console.error('Opening saved trades...');
-    await page.goto('https://optionstrat.com/saved', { waitUntil: 'networkidle' });
-
-    // Ensure "Live" is selected in the Group dropdown
-    const groupSelect = page.locator('select, [role="combobox"]').filter({ hasText: /live|group/i }).first();
-    const groupVisible = await groupSelect.isVisible().catch(() => false);
-    if (groupVisible) {
-      const current = await groupSelect.inputValue().catch(() => '');
-      if (!current.toLowerCase().includes('live')) {
-        console.error('Selecting "Live" group...');
-        await groupSelect.selectOption({ label: 'Live' });
-        await page.waitForTimeout(1000);
-      } else {
-        console.error('Group "Live" already selected.');
-      }
-    } else {
-      console.error('Group dropdown not found — proceeding with current selection.');
-    }
-
-    // Open export modal
-    console.error('Clicking Export...');
-    await page.click('button:has-text("Export"), a:has-text("Export")');
-    await page.waitForSelector('text=Export as .xlsx', { timeout: 10000 });
-
-    // Click the xlsx button in the modal and capture the download
-    const downloadPromise = page.waitForEvent('download', { timeout: 30000 });
-    await page.click('button:has-text("Export as .xlsx"), a:has-text("Export as .xlsx")');
-    const download = await downloadPromise;
-
-    const tmpPath = await download.path();
-    if (!tmpPath) throw new Error('Download failed — no file path returned.');
-
-    // Save xlsx to data/
-    const dataDir = path.join(__dirname, 'data');
-    fs.mkdirSync(dataDir, { recursive: true });
-    const suggestedName = download.suggestedFilename();
-    const xlsxPath = path.join(dataDir, suggestedName);
-    fs.copyFileSync(tmpPath, xlsxPath);
-    console.error(`Downloaded: ${suggestedName}`);
-
-    // Convert to csv — only delete xlsx if conversion succeeds
-    const csvName = suggestedName.replace(/\.xlsx$/i, '.csv');
-    const csvPath = path.join(dataDir, csvName);
-    const xlsxBuffer = fs.readFileSync(xlsxPath);
-    const csv = xlsxToCsv(xlsxBuffer);
-    fs.writeFileSync(csvPath, csv);
-    fs.unlinkSync(xlsxPath);
-    console.error(`Converted: ${csvName}`);
-
-    // Print csv path to stdout for callers to capture
-    console.log(csvPath);
-  } finally {
-    await browser.close();
+    return data.sid || null;
+  } catch {
+    return null;
   }
+}
+
+function saveSessionCookie(sid) {
+  fs.writeFileSync(SESSION_FILE, JSON.stringify({ sid }));
+}
+
+async function login() {
+  console.error('Logging in...');
+  const res = await fetch(`${BASE_URL}/api/session`, {
+    method: 'POST',
+    headers: API_HEADERS,
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+  });
+  if (!res.ok) throw new Error(`Login failed: ${res.status} ${res.statusText}`);
+
+  // Extract sid from Set-Cookie header
+  const cookies = res.headers.getSetCookie();
+  for (const cookie of cookies) {
+    const match = cookie.match(/sid=([^;]+)/);
+    if (match) {
+      const sid = match[1];
+      saveSessionCookie(sid);
+      console.error('Login successful, session saved.');
+      return sid;
+    }
+  }
+  throw new Error('Login response did not include sid cookie');
+}
+
+async function exportXlsx(sid) {
+  const res = await fetch(`${BASE_URL}/api/strategy/export`, {
+    method: 'POST',
+    headers: { ...API_HEADERS, Cookie: `sid=${sid}` },
+    body: JSON.stringify({
+      tab: 0,
+      sort: 1,
+      account: ACCOUNT_ID,
+      timeZone: 'America/Denver',
+    }),
+  });
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) throw new Error(`Export failed: ${res.status} ${res.statusText}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+(async () => {
+  let sid = loadSessionCookie();
+  let xlsxBuffer = null;
+
+  if (sid) {
+    console.error('Trying saved session...');
+    xlsxBuffer = await exportXlsx(sid);
+  }
+
+  if (!xlsxBuffer) {
+    sid = await login();
+    xlsxBuffer = await exportXlsx(sid);
+    if (!xlsxBuffer) throw new Error('Export failed after fresh login');
+  }
+
+  // Save xlsx to data/
+  const dataDir = path.join(__dirname, 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  const ts = new Date().toLocaleDateString('sv', { timeZone: 'America/Denver' })
+    + '_' + new Date().toLocaleTimeString('sv', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' }).replace(':', '-');
+  const xlsxName = `live-active-by-symbol-${ts}.xlsx`;
+  const xlsxPath = path.join(dataDir, xlsxName);
+  fs.writeFileSync(xlsxPath, xlsxBuffer);
+  console.error(`Downloaded: ${xlsxName}`);
+
+  // Convert to csv
+  const csvName = xlsxName.replace(/\.xlsx$/i, '.csv');
+  const csvPath = path.join(dataDir, csvName);
+  fs.writeFileSync(csvPath, xlsxToCsv(xlsxBuffer));
+  fs.unlinkSync(xlsxPath);
+  console.error(`Converted: ${csvName}`);
+
+  // Print csv path to stdout for callers to capture
+  console.log(csvPath);
 })();
