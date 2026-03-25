@@ -64,8 +64,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Deploy reports to S3
-        run: aws s3 sync reports/ s3://optionspread-heatmaps-billbaran/ --delete
+      - name: Upload reports to S3
+        run: aws s3 sync reports/ s3://optionspread-heatmaps-billbaran/ --exclude 'index.html'
+
+      - name: Generate index from S3 contents
+        run: aws s3 ls s3://optionspread-heatmaps-billbaran/ | awk '{print $4}' | node generate-index.js --stdin
+
+      - name: Upload index to S3
+        run: aws s3 cp reports/index.html s3://optionspread-heatmaps-billbaran/index.html
 
       - name: Invalidate CloudFront cache
         run: aws cloudfront create-invalidation --distribution-id E3AR100VQDUFIT --paths "/*"

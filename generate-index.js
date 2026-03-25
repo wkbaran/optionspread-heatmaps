@@ -16,8 +16,9 @@ function describe(basename) {
   return `${group} - ${type} - as of ${date} ${hh}:${mm}`;
 }
 
-module.exports = function generateIndex() {
-  const files = fs.readdirSync(REPORTS_DIR).filter(f => f.endsWith('.html') && f !== 'index.html');
+module.exports = function generateIndex(fileList) {
+  const files = (fileList || fs.readdirSync(REPORTS_DIR))
+    .filter(f => f.endsWith('.html') && f !== 'index.html');
 
   // Group files by their base key (strip trailing -heatmaps / -portfolio)
   const groups = new Map();
@@ -85,6 +86,19 @@ ${sorted.length ? `<ul>\n${rows}\n</ul>` : '<p class="empty">No reports yet.</p>
 </body>
 </html>`;
 
+  fs.mkdirSync(REPORTS_DIR, { recursive: true });
   fs.writeFileSync(path.join(REPORTS_DIR, 'index.html'), html);
   console.log(`Index updated — ${sorted.length} report${sorted.length === 1 ? '' : 's'}`);
 };
+
+// CLI: pipe a file list via stdin to generate index from external source (e.g. S3)
+//   aws s3 ls s3://bucket/ | awk '{print $4}' | node generate-index.js --stdin
+if (require.main === module) {
+  if (process.argv.includes('--stdin')) {
+    const input = fs.readFileSync('/dev/stdin', 'utf8');
+    const files = input.trim().split('\n').filter(Boolean);
+    module.exports(files);
+  } else {
+    module.exports();
+  }
+}
