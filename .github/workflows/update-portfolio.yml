@@ -64,6 +64,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
 
+      - name: Upload data files to S3
+        run: aws s3 sync data/ s3://optionspread-heatmaps-billbaran/data/
+
       - name: Upload reports to S3
         run: aws s3 sync reports/ s3://optionspread-heatmaps-billbaran/ --exclude 'index.html'
 

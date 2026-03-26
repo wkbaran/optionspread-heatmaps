@@ -110,7 +110,6 @@ async function exportXlsx(sid) {
   const csvName = xlsxName.replace(/\.xlsx$/i, '.csv');
   const csvPath = path.join(dataDir, csvName);
   fs.writeFileSync(csvPath, xlsxToCsv(xlsxBuffer));
-  fs.unlinkSync(xlsxPath);
   console.error(`Converted: ${csvName}`);
 
   // Print csv path to stdout for callers to capture
