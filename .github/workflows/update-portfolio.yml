@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check if correct Mountain Time window
+        id: time-check
         if: github.event_name == 'schedule'
         run: |
           export TZ=America/Denver
@@ -34,20 +35,24 @@ jobs:
           if ! { [ "$MORNING_DIFF" -ge 0 ] && [ "$MORNING_DIFF" -le 45 ]; } && \
              ! { [ "$AFTERNOON_DIFF" -ge 0 ] && [ "$AFTERNOON_DIFF" -le 45 ]; }; then
             echo "Outside acceptable Mountain Time window — skipping"
-            exit 1
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v5
+        if: steps.time-check.outputs.skip != 'true'
 
       - uses: actions/setup-node@v5
+        if: steps.time-check.outputs.skip != 'true'
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.time-check.outputs.skip != 'true'
         run: npm ci
 
       - name: Run download and portfolio generation
+        if: steps.time-check.outputs.skip != 'true'
         env:
           OPTIONSTRAT_EMAIL: ${{ secrets.OPTIONSTRAT_EMAIL }}
           OPTIONSTRAT_PASSWORD: ${{ secrets.OPTIONSTRAT_PASSWORD }}
@@ -59,22 +64,28 @@ jobs:
           bash run.sh
 
       - name: Configure AWS credentials
+        if: steps.time-check.outputs.skip != 'true'
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
 
       - name: Upload data files to S3
+        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 sync data/ s3://optionspread-heatmaps-billbaran/data/
 
       - name: Upload reports to S3
+        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 sync reports/ s3://optionspread-heatmaps-billbaran/ --exclude 'index.html'
 
       - name: Generate index from S3 contents
+        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 ls s3://optionspread-heatmaps-billbaran/ | awk '{print $4}' | node generate-index.js --stdin
 
       - name: Upload index to S3
+        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 cp reports/index.html s3://optionspread-heatmaps-billbaran/index.html
 
       - name: Invalidate CloudFront cache
+        if: steps.time-check.outputs.skip != 'true'
         run: aws cloudfront create-invalidation --distribution-id E3AR100VQDUFIT --paths "/*"
