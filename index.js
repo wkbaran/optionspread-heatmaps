@@ -241,9 +241,19 @@ const html = `<!DOCTYPE html>
       font-weight: 600;
       color: #e6edf3;
       text-align: center;
-      margin-bottom: 36px;
+      margin-bottom: 12px;
       letter-spacing: .03em;
     }
+    .page-nav {
+      text-align: right;
+      margin-bottom: 24px;
+    }
+    .page-nav a {
+      color: #8b949e;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .page-nav a:hover { color: #58a6ff; }
     h2 {
       font-size: .78rem;
       color: #8b949e;
@@ -329,6 +339,7 @@ const html = `<!DOCTYPE html>
 </head>
 <body>
 <h1>Options Spread Heatmaps &mdash; ${basename}</h1>
+<nav class="page-nav"><a href="archive.html">Archive</a></nav>
 <div id="wi-panel">
   <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
   <div id="wi-row">

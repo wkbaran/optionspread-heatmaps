@@ -526,10 +526,20 @@ const html = `<!DOCTYPE html>
       text-align: center;
       color: #6e7681;
       font-size: 12px;
-      margin-bottom: 36px;
+      margin-bottom: 12px;
       letter-spacing: .06em;
       text-transform: uppercase;
     }
+    .page-nav {
+      text-align: right;
+      margin-bottom: 24px;
+    }
+    .page-nav a {
+      color: #8b949e;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .page-nav a:hover { color: #58a6ff; }
     h2 {
       font-size: .78rem;
       color: #f0a500;
@@ -682,6 +692,7 @@ const html = `<!DOCTYPE html>
 <body>
 <h1>Portfolio Analysis &mdash; ${basename}</h1>
 <p class="page-sub">Theta &middot; Vega &middot; Delta &middot; Gamma &middot; Quality &middot; Scorecard</p>
+<nav class="page-nav"><a href="archive.html">Archive</a></nav>
 <div id="wi-panel">
   <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
   <div id="wi-row">

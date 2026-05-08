@@ -30,92 +30,6 @@ function weekLabel(monday) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-const SHARED_STYLE = `
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: #0d1117;
-      color: #c9d1d9;
-      padding: 40px 32px;
-      line-height: 1.6;
-    }
-    h1 {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #e6edf3;
-      margin-bottom: 28px;
-      letter-spacing: .03em;
-    }
-    a {
-      color: #58a6ff;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    a:hover { text-decoration: underline; }
-    .muted { color: #6e7681; font-size: 12px; }
-`;
-
-function generateLanding(latest) {
-  const { base, heatmaps, portfolio } = latest;
-  const label = describe(base);
-  const links = [];
-  if (heatmaps)  links.push(`<a href="${heatmaps}">Heatmaps</a>`);
-  if (portfolio) links.push(`<a href="${portfolio}">Portfolio</a>`);
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Reports</title>
-  <style>${SHARED_STYLE}
-    .latest {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 24px 28px;
-      max-width: 480px;
-    }
-    .latest-label {
-      font-size: 13px;
-      color: #8b949e;
-      margin-bottom: 14px;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      font-weight: 600;
-    }
-    .latest-title {
-      font-size: 15px;
-      color: #e6edf3;
-      font-weight: 600;
-      margin-bottom: 16px;
-    }
-    .latest-links { display: flex; gap: 20px; }
-    .latest-links a {
-      font-size: 14px;
-      padding: 6px 18px;
-      background: #21262d;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-    }
-    .latest-links a:hover { background: #2d333b; text-decoration: none; }
-    .archive-link {
-      margin-top: 24px;
-      font-size: 13px;
-    }
-  </style>
-</head>
-<body>
-  <h1>Reports</h1>
-  <div class="latest">
-    <div class="latest-label">Most Recent</div>
-    <div class="latest-title">${label}</div>
-    <div class="latest-links">${links.join('')}</div>
-  </div>
-  <div class="archive-link"><a href="archive.html">Archive →</a></div>
-</body>
-</html>`;
-}
-
 function generateArchive(sorted) {
   // Group by week
   const weeks = new Map(); // monday ISO → [{base, heatmaps, portfolio}]
@@ -152,7 +66,29 @@ ${rows}
 <head>
   <meta charset="UTF-8">
   <title>Reports — Archive</title>
-  <style>${SHARED_STYLE}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 40px 32px;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #e6edf3;
+      margin-bottom: 28px;
+      letter-spacing: .03em;
+    }
+    a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    a:hover { text-decoration: underline; }
+    .muted { color: #6e7681; font-size: 12px; }
     details {
       background: #161b22;
       border: 1px solid #21262d;
@@ -213,13 +149,10 @@ module.exports = function generateIndex(fileList) {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
 
   if (sorted.length) {
-    const [latestBase, latestFiles] = sorted[0];
-    fs.writeFileSync(
-      path.join(REPORTS_DIR, 'index.html'),
-      generateLanding({ base: latestBase, ...latestFiles })
-    );
-  } else {
-    fs.writeFileSync(path.join(REPORTS_DIR, 'index.html'), generateLanding({ base: '', heatmaps: null, portfolio: null }));
+    const [, { heatmaps, portfolio }] = sorted[0];
+    const latestFile = portfolio || heatmaps;
+    const content = fs.readFileSync(path.join(REPORTS_DIR, latestFile), 'utf8');
+    fs.writeFileSync(path.join(REPORTS_DIR, 'index.html'), content);
   }
 
   fs.writeFileSync(path.join(REPORTS_DIR, 'archive.html'), generateArchive(sorted));

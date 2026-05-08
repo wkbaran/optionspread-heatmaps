@@ -74,9 +74,11 @@ jobs:
         if: steps.time-check.outputs.skip != 'true'
         run: aws s3 ls s3://optionspread-heatmaps-billbaran/ | awk '{print $4}' | node generate-index.js --stdin
 
-      - name: Upload index to S3
+      - name: Upload index and archive to S3
         if: steps.time-check.outputs.skip != 'true'
-        run: aws s3 cp reports/index.html s3://optionspread-heatmaps-billbaran/index.html
+        run: |
+          aws s3 cp reports/index.html s3://optionspread-heatmaps-billbaran/index.html
+          aws s3 cp reports/archive.html s3://optionspread-heatmaps-billbaran/archive.html
 
       - name: Invalidate CloudFront cache
         if: steps.time-check.outputs.skip != 'true'
