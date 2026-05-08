@@ -168,19 +168,27 @@
     var v    = parseCSVLine(line);
     var name = (v[0] || '').trim();
     if (!name || name.charAt(0) === '.' || name.toLowerCase().indexOf('spread') < 0) return null;
-    var gamma   = parseFloat(v[13]) || 0;
-    var theta   = parseFloat(v[12]) || 0;
-    var vega    = parseFloat(v[14]) || 0;
-    var chance  = parsePct(v[6]) / 100;
+    var gamma     = parseFloat(v[13]) || 0;
+    var theta     = parseFloat(v[12]) || 0;
+    var vega      = parseFloat(v[14]) || 0;
+    var chance    = parsePct(v[6]) / 100;
     var maxLoss   = Math.abs(parseDollar(v[7]));
     var maxProfit = Math.abs(parseDollar(v[8]));
+    var returnPct = parsePct(v[1]);
+    var expStr    = (v[4] || '').trim();
+    var expDate   = new Date(expStr);
+    var dte       = isNaN(expDate.getTime()) ? null : Math.floor((expDate - new Date()) / 86400000);
+    var lossOfRisk = (returnPct < 0 && maxLoss > 0)
+      ? (returnPct / 100) * maxProfit / maxLoss * 100 : null;
     return {
       name:       name,
       underlying: name.split(' ')[0],
-      expiration: (v[4] || '').trim(),
+      expiration: expStr,
       type:       name.indexOf('Bull Put')  >= 0 ? 'Bull Put'  :
                   name.indexOf('Bear Call') >= 0 ? 'Bear Call' : 'Other',
-      returnPct:  parsePct(v[1]),
+      returnPct:  returnPct,
+      dte:        dte,
+      lossOfRisk: lossOfRisk,
       credit:     Math.abs(parseDollar(v[5])),
       chance:     chance,
       maxLoss:    maxLoss,
@@ -428,11 +436,12 @@
 
   // ── Scorecard coloring ─────────────────────────────────────────────────────
   // td indices: 0=sym, 1=badge, 2=expd, then keys at 3..14
-  var SC_KEYS = ['chance','credit','maxProfit','maxLoss','ev','theta','vega','gamma','iv','tgRatio','tvRatio','returnPct'];
+  var SC_KEYS = ['dte','chance','credit','maxProfit','maxLoss','ev','theta','vega','gamma','iv','tgRatio','tvRatio','returnPct','lossOfRisk'];
 
   function parseScoreVal(key, text) {
     if (!text || text === '\u2014') return null;
     switch (key) {
+      case 'dte':       return parseInt(text, 10) || null;
       case 'chance':    return parseFloat(text) / 100;
       case 'credit': case 'maxProfit': case 'maxLoss':
         return parseFloat(text.replace(/[^0-9.]/g, '')) || 0;
@@ -440,7 +449,7 @@
         var neg = text.charAt(0) === '-';
         return (neg ? -1 : 1) * (parseFloat(text.replace(/[^0-9.]/g, '')) || 0);
       }
-      default: return parseFloat(text);  // theta, vega, gamma, iv, ratios, returnPct
+      default: return parseFloat(text);  // theta, vega, gamma, iv, ratios, returnPct, lossOfRisk
     }
   }
 
@@ -471,6 +480,8 @@
     if (!st) return null;
     var bg;
     switch (key) {
+      case 'dte':
+        bg = cAmber(Math.max(0, 30 - value), 30); break;
       case 'chance': case 'credit': case 'maxProfit': case 'theta':
         bg = cGreen(value, st.max); break;
       case 'maxLoss':
@@ -481,6 +492,8 @@
         bg = cDiverging(value, st.min, st.max); break;
       case 'iv': case 'tgRatio': case 'tvRatio':
         bg = cAmber(value, st.max); break;
+      case 'lossOfRisk':
+        bg = cRed(Math.abs(value), Math.max(st.absMax, 25)); break;
       default: return null;
     }
     return { bg: bg, fg: fgFor(bg) };
@@ -511,8 +524,8 @@
       if (!expTd) continue;
       var rowExpFmt = expTd.textContent.trim();
       if (rowExpFmt === spExpFmt) {
-        // Same expiration group — sort by theta descending
-        var thetaTd = row.querySelectorAll('td')[8];
+        // Same expiration group — sort by theta descending (index 9: sym+badge+expd+dte+chance+credit+maxProfit+maxLoss+ev+theta)
+        var thetaTd = row.querySelectorAll('td')[9];
         var rowTheta = thetaTd ? (parseFloat(thetaTd.textContent) || 0) : 0;
         if (sp.theta > rowTheta) return row;
         lastMatchRow = row;
@@ -533,6 +546,7 @@
 
     function fmt(k) {
       switch (k) {
+        case 'dte':       return sp.dte != null ? String(sp.dte) : '\u2014';
         case 'chance':    return (sp.chance * 100).toFixed(1) + '%';
         case 'credit':    return '$' + sp.credit.toFixed(0);
         case 'maxProfit': return '$' + sp.maxProfit.toFixed(0);
@@ -545,17 +559,26 @@
         case 'tgRatio':   return sp.tgRatio != null ? sp.tgRatio.toFixed(2) : '\u2014';
         case 'tvRatio':   return sp.tvRatio != null ? sp.tvRatio.toFixed(2) : '\u2014';
         case 'returnPct': return sp.returnPct.toFixed(1) + '%';
+        case 'lossOfRisk': return sp.lossOfRisk != null ? sp.lossOfRisk.toFixed(1) + '%' : '\u2014';
         default:          return '\u2014';
       }
     }
 
     // Raw value for color lookup (mirrors sp field but in same units as parsed stats)
     var rawVal = {
+      dte: sp.dte, lossOfRisk: sp.lossOfRisk,
       chance: sp.chance, credit: sp.credit, maxProfit: sp.maxProfit,
       maxLoss: sp.maxLoss, ev: sp.ev, theta: sp.theta, vega: sp.vega,
       gamma: sp.gamma, iv: sp.iv,
       tgRatio: sp.tgRatio, tvRatio: sp.tvRatio, returnPct: sp.returnPct,
     };
+
+    function thresholdClass(k, value) {
+      if (k === 'returnPct'  && value != null && value >= 50)  return 'threshold-tp';
+      if (k === 'lossOfRisk' && value != null && value <= -25) return 'threshold-sl';
+      if (k === 'dte'        && value != null && value <= 21)  return 'threshold-dte';
+      return null;
+    }
 
     var tr = mkRow(id, color);
     tr.appendChild(mkTd('sym', sp.underlying));
@@ -567,8 +590,11 @@
     tr.appendChild(badgeTd);
     tr.appendChild(mkTd('expd', fmtExp(sp.expiration)));
     SC_KEYS.forEach(function (k) {
+      var val = rawVal[k];
       var td = mkTd('', fmt(k));
-      colorTd(td, scorecardCellBg(k, rawVal[k], stats));
+      colorTd(td, scorecardCellBg(k, val, stats));
+      var cls = thresholdClass(k, val);
+      if (cls) td.classList.add(cls);
       tr.appendChild(td);
     });
 

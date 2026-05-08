@@ -36,6 +36,7 @@ function parseDollar(s) {
 function loadSpreads(filePath) {
   const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim());
   const out   = [];
+  const now   = new Date();
   for (let i = 2; i < lines.length; i++) {
     const v = parseCSVLine(lines[i]);
     if (!v[0] || v[0].startsWith('.'))               continue;
@@ -48,6 +49,12 @@ function loadSpreads(filePath) {
     const chance    = parsePct(v[6]) / 100;
     const maxLoss   = Math.abs(parseDollar(v[7]));
     const maxProfit = Math.abs(parseDollar(v[8]));
+    const returnPct = parsePct(v[1]);
+    const expDate   = new Date(v[4]);
+    const dte       = isNaN(expDate.getTime()) ? null : Math.floor((expDate - now) / 86400000);
+    // Loss as % of max risk (meaningful only when negative; null for winning positions)
+    const lossOfRisk = (returnPct < 0 && maxLoss > 0)
+      ? (returnPct / 100) * maxProfit / maxLoss * 100 : null;
 
     out.push({
       name,
@@ -55,7 +62,9 @@ function loadSpreads(filePath) {
       expiration:      v[4],
       type:            name.includes('Bull Put')  ? 'Bull Put'  :
                        name.includes('Bear Call') ? 'Bear Call' : 'Other',
-      returnPct:       parsePct(v[1]),
+      returnPct,
+      dte,
+      lossOfRisk,
       credit:          Math.abs(parseDollar(v[5])),
       chance,
       maxLoss,
@@ -265,8 +274,12 @@ function scorecard(spreads) {
     return d !== 0 ? d : b.theta - a.theta;
   });
 
-  // Column spec: key, header, format, colorFn(value, colStats)
+  // Column spec: key, header, format, colorFn(value, colStats), optional thresholdClass(v)
   const cols = [
+    { key: 'dte',       hdr: 'DTE',       fmt: v => String(v),
+      color: (v, st) => cAmber(Math.max(0, 30 - v), 30),
+      nullable: true,
+      thresholdClass: v => v <= 21 ? 'threshold-dte' : null },
     { key: 'chance',    hdr: 'Chance',    fmt: v => (v*100).toFixed(1)+'%',
       color: (v, st) => cGreen(v, st.max) },
     { key: 'credit',    hdr: 'Credit',    fmt: v => '$'+v.toFixed(0),
@@ -290,7 +303,12 @@ function scorecard(spreads) {
     { key: 'tvRatio',   hdr: 'Θ/|V|',    fmt: v => v == null ? '—' : v.toFixed(2),
       color: (v, st) => v == null ? '#1e2330' : cAmber(v, st.max), nullable: true },
     { key: 'returnPct', hdr: 'Return',    fmt: v => v.toFixed(1)+'%',
-      color: (v, st) => cDiverging(v, st.min, st.max) },
+      color: (v, st) => cDiverging(v, st.min, st.max),
+      thresholdClass: v => v >= 50 ? 'threshold-tp' : null },
+    { key: 'lossOfRisk', hdr: 'Loss/Risk', fmt: v => v.toFixed(1)+'%',
+      color: (v, st) => cRed(Math.abs(v), Math.max(st.absMax, 25)),
+      nullable: true,
+      thresholdClass: v => v <= -25 ? 'threshold-sl' : null },
   ];
 
   // Per-column stats
@@ -316,8 +334,9 @@ function scorecard(spreads) {
     const cells = cols.map(col => {
       const val = s[col.key];
       if (val == null || isNaN(val)) return `<td class="na">—</td>`;
-      const bg = col.color(val, stats[col.key]);
-      return `<td style="background:${bg};color:${fg(bg)}">${col.fmt(val)}</td>`;
+      const bg  = col.color(val, stats[col.key]);
+      const cls = col.thresholdClass ? col.thresholdClass(val) : null;
+      return `<td${cls ? ` class="${cls}"` : ''} style="background:${bg};color:${fg(bg)}">${col.fmt(val)}</td>`;
     }).join('');
     const badge = s.type === 'Bull Put'
       ? '<span class="badge bull">Bull Put</span>'
@@ -333,6 +352,9 @@ function scorecard(spreads) {
   // Summary footer
   const totalCells = cols.map(col => {
     // Averages for rates/ratios
+    if (col.key === 'dte') {
+      return `<td class="trow na">—</td>`;
+    }
     if (col.key === 'chance') {
       const avg = spreads.reduce((a, s) => a + s.chance, 0) / spreads.length;
       const bg  = col.color(avg, stats[col.key]);
@@ -351,6 +373,15 @@ function scorecard(spreads) {
       if (ratio == null) return `<td class="trow na">—</td>`;
       const bg = col.color(ratio, stats[col.key]);
       return `<td class="trow" style="background:${bg};color:${fg(bg)}">${ratio.toFixed(2)}</td>`;
+    }
+    if (col.key === 'lossOfRisk') {
+      // Portfolio-level: total current P&L / total max risk
+      const totalPnL    = spreads.reduce((a, s) => a + (s.returnPct / 100) * s.maxProfit, 0);
+      const totalMaxLoss = spreads.reduce((a, s) => a + s.maxLoss, 0);
+      const portLoss    = totalMaxLoss > 0 ? totalPnL / totalMaxLoss * 100 : null;
+      if (portLoss == null || portLoss >= 0) return `<td class="trow na">—</td>`;
+      const bg = col.color(portLoss, stats[col.key]);
+      return `<td class="trow" style="background:${bg};color:${fg(bg)}">${portLoss.toFixed(1)}%</td>`;
     }
     const total = spreads.reduce((a, s) => a + (s[col.key] || 0), 0);
     const bg    = col.color(total, stats[col.key]);
@@ -375,6 +406,30 @@ function scorecard(spreads) {
   <details class="col-guide">
     <summary>Column guide — EV &amp; Greeks</summary>
     <dl>
+      <dt>DTE</dt>
+      <dd>
+        Days to expiration as of when this report was generated. Highlighted in amber when <strong>≤ 21</strong> —
+        the target window to close or roll positions to avoid gamma risk and assignment complications near expiry.
+      </dd>
+
+      <dt>Loss/Risk</dt>
+      <dd>
+        Current loss expressed as a percentage of maximum possible loss (i.e. the capital at risk).
+        Only shown for losing positions — blank for positions currently at a gain.
+        Formula: <code>(current P&amp;L / max loss) × 100</code>.
+        Highlighted in red when <strong>≤ −25%</strong>, which is the stop-loss close-out threshold.
+        Unlike <em>Return</em> (which is % of max profit), this metric uses the same denominator as the actual risk taken.
+      </dd>
+
+      <dt>Return</dt>
+      <dd>
+        Current mark-to-market return on the position as a percentage of max profit.
+        100% means the spread has expired worthless and you kept all the premium.
+        Negative means the position is currently at a loss relative to entry.
+        Highlighted in green when <strong>≥ 50%</strong>, the take-profit close-out threshold.
+        Colour is diverging: green for positive return, red for negative.
+      </dd>
+
       <dt>EV</dt>
       <dd>
         Binary-outcome expected value: <code>Chance × Max Profit − (1 − Chance) × Max Loss</code>.
@@ -432,13 +487,6 @@ function scorecard(spreads) {
         A position can score well on one and poorly on the other.
       </dd>
 
-      <dt>Return</dt>
-      <dd>
-        Current mark-to-market return on the position as a percentage of max profit.
-        100% means the spread has expired worthless and you kept all the premium.
-        Negative means the position is currently at a loss relative to entry.
-        Colour is diverging: green for positive return, red for negative.
-      </dd>
     </dl>
   </details>
 </section>`;
@@ -606,6 +654,10 @@ const html = `<!DOCTYPE html>
     }
     .badge.bull { background: rgba(40,180,40,.18); color: rgb(80,210,80); border: 1px solid rgba(80,210,80,.3); }
     .badge.bear { background: rgba(220,60,60,.18); color: rgb(240,100,100); border: 1px solid rgba(220,60,60,.3); }
+    /* ── Close-out rule thresholds ── */
+    td.threshold-tp  { box-shadow: inset 0 0 0 2px #22c55e; font-weight: 700; }
+    td.threshold-sl  { box-shadow: inset 0 0 0 2px #ef4444; font-weight: 700; }
+    td.threshold-dte { box-shadow: inset 0 0 0 2px #f0a500; font-weight: 700; }
     /* ── What-if panel ── */
     #wi-panel { background: #10151f; border: 1px solid #2a3040; border-radius: 8px; padding: 14px 18px; margin-bottom: 28px; }
     #wi-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
