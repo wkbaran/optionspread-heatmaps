@@ -20,10 +20,17 @@ jobs:
         id: time-check
         if: github.event_name == 'schedule'
         run: |
-          EXPECTED_MORNING=$(TZ=America/Denver date -d "07:45" -u +"%H")
-          EXPECTED_AFTERNOON=$(TZ=America/Denver date -d "13:25" -u +"%H")
+          # Determine MDT (-0600) vs MST (-0700)
+          OFFSET=$(TZ=America/Denver date +%z)
+          if [[ "$OFFSET" == "-0600" ]]; then
+            EXPECTED_MORNING="13"   # 7:45 AM MDT = 13:45 UTC
+            EXPECTED_AFTERNOON="19" # 1:25 PM MDT = 19:25 UTC
+          else
+            EXPECTED_MORNING="14"   # 7:45 AM MST = 14:45 UTC
+            EXPECTED_AFTERNOON="20" # 1:25 PM MST = 20:25 UTC
+          fi
           TRIGGER_HOUR=$(echo "${{ github.event.schedule }}" | awk '{print $2}')
-          echo "Trigger hour (UTC): $TRIGGER_HOUR, expected morning: $EXPECTED_MORNING, expected afternoon: $EXPECTED_AFTERNOON"
+          echo "Offset: $OFFSET, trigger hour (UTC): $TRIGGER_HOUR, expected morning: $EXPECTED_MORNING, expected afternoon: $EXPECTED_AFTERNOON"
 
           if [[ "$TRIGGER_HOUR" != "$EXPECTED_MORNING" && "$TRIGGER_HOUR" != "$EXPECTED_AFTERNOON" ]]; then
             echo "Wrong trigger for current DST status — skipping"
