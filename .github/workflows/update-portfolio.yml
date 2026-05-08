@@ -16,25 +16,17 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Check if correct Mountain Time window
+      - name: Check if correct Mountain Time trigger
         id: time-check
         if: github.event_name == 'schedule'
         run: |
-          export TZ=America/Denver
-          MOUNTAIN_HOUR=$(date +%-H)
-          MOUNTAIN_MIN=$(date +%-M)
-          CURRENT_MINS=$((MOUNTAIN_HOUR * 60 + MOUNTAIN_MIN))
-          echo "Mountain time: $MOUNTAIN_HOUR:$(printf '%02d' $MOUNTAIN_MIN) ($CURRENT_MINS mins since midnight)"
+          EXPECTED_MORNING=$(TZ=America/Denver date -d "07:45" -u +"%H")
+          EXPECTED_AFTERNOON=$(TZ=America/Denver date -d "13:25" -u +"%H")
+          TRIGGER_HOUR=$(echo "${{ github.event.schedule }}" | awk '{print $2}')
+          echo "Trigger hour (UTC): $TRIGGER_HOUR, expected morning: $EXPECTED_MORNING, expected afternoon: $EXPECTED_AFTERNOON"
 
-          # Target times: 7:45 (465 min) and 13:25 (805 min)
-          # Accept within 45-min window after target — enough for GHA delay,
-          # but less than 60 min so the wrong DST cron (1 hour off) is rejected
-          MORNING_DIFF=$((CURRENT_MINS - 465))
-          AFTERNOON_DIFF=$((CURRENT_MINS - 805))
-
-          if ! { [ "$MORNING_DIFF" -ge 0 ] && [ "$MORNING_DIFF" -le 45 ]; } && \
-             ! { [ "$AFTERNOON_DIFF" -ge 0 ] && [ "$AFTERNOON_DIFF" -le 45 ]; }; then
-            echo "Outside acceptable Mountain Time window — skipping"
+          if [[ "$TRIGGER_HOUR" != "$EXPECTED_MORNING" && "$TRIGGER_HOUR" != "$EXPECTED_AFTERNOON" ]]; then
+            echo "Wrong trigger for current DST status — skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
