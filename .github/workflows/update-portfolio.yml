@@ -37,13 +37,13 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: steps.time-check.outputs.skip != 'true'
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         if: steps.time-check.outputs.skip != 'true'
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -64,7 +64,7 @@ jobs:
 
       - name: Configure AWS credentials
         if: steps.time-check.outputs.skip != 'true'
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
