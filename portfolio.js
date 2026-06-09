@@ -2,6 +2,7 @@
 
 const fs       = require('fs');
 const path     = require('path');
+const https    = require('https');
 const wiScript = fs.readFileSync(path.join(__dirname, 'whatif.js'), 'utf8');
 
 const csvFile = process.argv[2];
@@ -762,8 +763,16 @@ function fmtExpISO(expStr) {
   return `${year}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
 }
 
+// Parse timestamp from CSV filename (e.g. live-active-...-2026-05-07_19-22.csv → 2026-05-07T19:22:00Z)
+// Falls back to now if the filename doesn't contain a recognisable date.
+function tsFromFilename(filename) {
+  const m = path.basename(filename).match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
+  return m ? new Date(`${m[1]}T${m[2]}:${m[3]}:00Z`) : new Date();
+}
+const snapshotTime = tsFromFilename(csvFile);
+
 const snapshot = {
-  generatedAt: new Date().toISOString(),
+  generatedAt: snapshotTime.toISOString(),
   source:      path.basename(csvFile),
   positions:   spreads.map(s => ({
     name:       s.name,
@@ -789,5 +798,53 @@ const snapshot = {
 const jsonFile = path.join(reportsDir, basename + '-portfolio.json');
 fs.writeFileSync(jsonFile, JSON.stringify(snapshot, null, 2));
 console.log(`Wrote → ${jsonFile}`);
+
+// ── Underlying price snapshot ─────────────────────────────────────────────────
+// Fetch current prices so daily-pnl.js can do exact attribution without having
+// to reverse-engineer prices from historical data.
+
+function httpsGet(url, opts) {
+  return new Promise(resolve => {
+    const req = https.get(url, opts || {}, res => {
+      let buf = '';
+      res.on('data', d => buf += d);
+      res.on('end', () => resolve(buf));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function fetchCurrentPrices(underlyings) {
+  const now     = Date.now();
+  const period2 = Math.floor(now / 1000) + 86400;
+  const period1 = period2 - 10 * 86400;
+  const prices  = {};
+  await Promise.all(underlyings.map(async sym => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}` +
+                `?interval=1d&period1=${period1}&period2=${period2}`;
+    const raw = await httpsGet(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+    });
+    if (!raw) return;
+    try {
+      const r = JSON.parse(raw).chart?.result?.[0];
+      if (!r) return;
+      const closes = r.indicators.quote[0].close;
+      const price  = [...closes].reverse().find(c => c != null);
+      if (price != null) prices[sym] = price;
+    } catch (_) {}
+  }));
+  return prices;
+}
+
+(async () => {
+  const underlyings = [...new Set(spreads.map(s => s.underlying))];
+  const prices = await fetchCurrentPrices(underlyings);
+  const priceFile = path.join(reportsDir, basename + '-prices.json');
+  fs.writeFileSync(priceFile, JSON.stringify({ generatedAt: snapshotTime.toISOString(), prices }, null, 2));
+  const found = Object.keys(prices).length;
+  console.log(`Wrote → ${priceFile} (${found}/${underlyings.length} underlyings)`);
+})().catch(e => console.warn('WARN: price snapshot failed:', e.message));
 
 require('./generate-index')();

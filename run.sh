@@ -15,4 +15,7 @@ echo "==> CSV: $csv"
 echo "==> Generating portfolio..."
 node portfolio.js "$csv"
 
+echo "==> Generating daily P&L attribution..."
+node daily-pnl.js || echo "WARN: daily-pnl.js skipped (need at least 2 portfolio snapshots)"
+
 echo "==> Done."
