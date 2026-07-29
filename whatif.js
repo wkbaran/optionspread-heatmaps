@@ -298,12 +298,15 @@
     valCell.textContent = (base + wiSum).toFixed(dec);
   }
 
-  // Column-aligned footer update: footer[j] = base[j] + sum of wi-row[j] (non-empty)
+  // Column-aligned footer update: footer[j] = base[j] + sum of wi-row[j] (non-empty).
+  // Grid wi-rows carry an extra Type-badge cell that the footer's colspan="2" cell
+  // doesn't, so wi-row cell indices run one ahead of footer cell indices.
   function updateGridTotals(tbody, dec) {
     var totalRow = findTotalRow(tbody);
     if (!totalRow) return;
     var footerCells = Array.from(totalRow.querySelectorAll('td'));
     var wiRows = Array.from(tbody.querySelectorAll('tr.wi-row'));
+    var wiOffset = footerCells[0] && footerCells[0].colSpan > 1 ? footerCells[0].colSpan - 1 : 0;
     for (var j = 1; j < footerCells.length; j++) {
       var cell = footerCells[j];
       if (cell.dataset.wiBase === undefined)
@@ -312,8 +315,9 @@
       var wiSum = 0;
       wiRows.forEach(function (tr) {
         var cells = tr.querySelectorAll('td');
-        if (cells[j] && !cells[j].classList.contains('empty')) {
-          var v = parseFloat(cells[j].textContent);
+        var wiIdx = j + wiOffset;
+        if (cells[wiIdx] && !cells[wiIdx].classList.contains('empty')) {
+          var v = parseFloat(cells[wiIdx].textContent);
           if (!isNaN(v)) wiSum += v;
         }
       });
@@ -397,13 +401,22 @@
     var ths  = Array.from(section.querySelectorAll('thead th'));
     var type = section.dataset.section;
 
-    var existingSyms = Array.from(tbody.querySelectorAll('tr:not(.wi-row) td.sym'))
-      .map(function (td) { return td.textContent.trim(); });
-    var existsAlready = existingSyms.indexOf(sp.underlying) >= 0;
+    var spTypeText = sp.type === 'Bull Put' ? 'Bull Put' : sp.type === 'Bear Call' ? 'Bear Call' : 'Other';
+    var existsAlready = Array.from(tbody.querySelectorAll('tr:not(.wi-row)')).some(function (row) {
+      var symTd = row.querySelector('td.sym');
+      if (!symTd || symTd.textContent.trim() !== sp.underlying) return false;
+      var badgeEl = row.querySelector('.badge.bull, .badge.bear, .badge.other');
+      return badgeEl && badgeEl.textContent.trim() === spTypeText;
+    });
     var label = existsAlready ? sp.underlying + ' (+)' : sp.underlying;
 
     var tr = mkRow(id, color);
     tr.appendChild(mkTd('sym', label));
+    var typeTd = document.createElement('td');
+    typeTd.innerHTML = '<span class="badge ' +
+      (sp.type === 'Bull Put' ? 'bull' : sp.type === 'Bear Call' ? 'bear' : 'other') +
+      '">' + spTypeText + '</span>';
+    tr.appendChild(typeTd);
 
     var hasTotal = false;
     ths.forEach(function (th) {
@@ -541,6 +554,26 @@
     return lastMatchRow ? nextNonWi(lastMatchRow, totalRow) : totalRow;
   }
 
+  // Cross-reference already-rendered scorecard rows (static + previously-added
+  // what-if rows) to detect whether `sp` completes/joins an iron condor pairing.
+  // One-directional: only the newly-injected row gets flagged.
+  function findIronCondorMatch(tbody, sp) {
+    if (sp.type !== 'Bull Put' && sp.type !== 'Bear Call') return false;
+    var wantType = sp.type === 'Bull Put' ? 'Bear Call' : 'Bull Put';
+    var spExpFmt = fmtExp(sp.expiration);
+    var rows = Array.from(tbody.querySelectorAll('tr:not(.exp-divider)'));
+    for (var i = 0; i < rows.length; i++) {
+      var symTd = rows[i].querySelector('td.sym');
+      var expTd = rows[i].querySelector('td.expd');
+      if (!symTd || !expTd) continue;
+      if (symTd.textContent.trim() !== sp.underlying) continue;
+      if (expTd.textContent.trim() !== spExpFmt) continue;
+      var badgeEl = rows[i].querySelector('.badge.bull, .badge.bear');
+      if (badgeEl && badgeEl.textContent.trim() === wantType) return true;
+    }
+    return false;
+  }
+
   function injectScorecard(tbody, id, sp, color) {
     var stats = getScorecardStats(tbody);
 
@@ -582,11 +615,20 @@
 
     var tr = mkRow(id, color);
     tr.appendChild(mkTd('sym', sp.underlying));
-    var badgeTd = document.createElement('td');
-    var badge   = document.createElement('span');
-    badge.className   = 'badge ' + (sp.type === 'Bull Put' ? 'bull' : 'bear');
-    badge.textContent = sp.type === 'Bull Put' ? 'Bull Put' : 'Bear Call';
+    var badgeTd   = document.createElement('td');
+    var badge     = document.createElement('span');
+    var badgeType = sp.type === 'Bull Put'  ? 'bull' : sp.type === 'Bear Call' ? 'bear' : 'other';
+    var badgeText = sp.type === 'Bull Put'  ? 'Bull Put' : sp.type === 'Bear Call' ? 'Bear Call' : 'Other';
+    badge.className   = 'badge ' + badgeType;
+    badge.textContent = badgeText;
     badgeTd.appendChild(badge);
+    if (findIronCondorMatch(tbody, sp)) {
+      var icBadge = document.createElement('span');
+      icBadge.className = 'badge ic';
+      icBadge.textContent = 'IC';
+      icBadge.title = 'Paired with a matching Bull Put + Bear Call at the same underlying and expiration — together these form an iron condor.';
+      badgeTd.appendChild(icBadge);
+    }
     tr.appendChild(badgeTd);
     tr.appendChild(mkTd('expd', fmtExp(sp.expiration)));
     SC_KEYS.forEach(function (k) {

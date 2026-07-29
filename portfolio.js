@@ -83,6 +83,27 @@ function loadSpreads(filePath) {
   return out;
 }
 
+// ── Iron condor tagging ──────────────────────────────────────────────────────
+// Not a distinct row in the source data — a Bull Put spread and a Bear Call spread
+// that happen to share the same underlying + expiration. Tag both legs so grids
+// and the scorecard can flag the pairing instead of silently merging/hiding it.
+function tagIronCondors(spreads) {
+  const byKey = {};
+  for (const s of spreads) {
+    if (s.type !== 'Bull Put' && s.type !== 'Bear Call') continue;
+    const k = `${s.underlying}||${s.expiration}`;
+    (byKey[k] = byKey[k] || []).push(s);
+  }
+  for (const k in byKey) {
+    const legs = byKey[k];
+    const hasBullPut  = legs.some(s => s.type === 'Bull Put');
+    const hasBearCall = legs.some(s => s.type === 'Bear Call');
+    if (hasBullPut && hasBearCall) legs.forEach(s => { s.isIronCondor = true; });
+  }
+  for (const s of spreads) if (s.isIronCondor === undefined) s.isIronCondor = false;
+  return spreads;
+}
+
 // ── Color Scales ─────────────────────────────────────────────────────────────
 
 // negative=red ← gray → green=positive
@@ -125,15 +146,28 @@ function fmtExp(exp) {
 
 // ── Section 1 & 2: Concentration grids (underlying × expiration) ─────────────
 
+function typeBadgeHtml(type) {
+  return type === 'Bull Put'  ? '<span class="badge bull">Bull Put</span>'
+       : type === 'Bear Call' ? '<span class="badge bear">Bear Call</span>'
+       : '<span class="badge other">Other</span>';
+}
+
+// One row per (underlying, type) — a put spread and a call spread sharing an
+// underlying+expiration (an iron condor) never land in the same cell/row; they each
+// get their own row, sorted by row total like everything else, with no special
+// grouping or adjacency for the underlying they share.
 function concentrationGrid(spreads, key, title, colorFn, subtitle, sortDir) {
   const sectionId = key + '-grid';
   const expirations = [...new Set(spreads.map(s => s.expiration))]
     .sort((a, b) => new Date(a) - new Date(b));
 
+  // cell key: `${underlying}||${type}||${expiration}`
   const grid = {};
+  const gridCount = {};
   for (const s of spreads) {
-    const k = `${s.underlying}||${s.expiration}`;
+    const k = `${s.underlying}||${s.type}||${s.expiration}`;
     grid[k] = (grid[k] || 0) + s[key];
+    gridCount[k] = (gridCount[k] || 0) + 1;
   }
 
   const allVals  = Object.values(grid);
@@ -141,28 +175,37 @@ function concentrationGrid(spreads, key, title, colorFn, subtitle, sortDir) {
   const gMax     = Math.max(...allVals);
   const gAbsMax  = Math.max(Math.abs(gMin), Math.abs(gMax), 1e-9);
 
-  const underlyings = [...new Set(spreads.map(s => s.underlying))];
-  underlyings.sort((a, b) => {
-    const ta = expirations.reduce((sum, e) => sum + (grid[`${a}||${e}`] || 0), 0);
-    const tb = expirations.reduce((sum, e) => sum + (grid[`${b}||${e}`] || 0), 0);
+  function rowTotal(u, t) {
+    return expirations.reduce((sum, e) => sum + (grid[`${u}||${t}||${e}`] || 0), 0);
+  }
+
+  const rowKeys = [...new Set(spreads.map(s => `${s.underlying}||${s.type}`))]
+    .map(rk => { const [underlying, type] = rk.split('||'); return { underlying, type }; });
+
+  const orderedRows = [...rowKeys].sort((a, b) => {
+    const ta = rowTotal(a.underlying, a.type);
+    const tb = rowTotal(b.underlying, b.type);
     return sortDir === 'asc' ? ta - tb : tb - ta;
   });
 
   const headerCells = expirations.map(e => `<th data-exp="${e}">${fmtExp(e)}</th>`).join('');
 
-  const bodyRows = underlyings.map(u => {
-    const rowTotal = expirations.reduce((sum, e) => sum + (grid[`${u}||${e}`] || 0), 0);
-    const cells    = expirations.map(e => {
-      const k = `${u}||${e}`;
+  const bodyRows = orderedRows.map(({ underlying: u, type: t }) => {
+    const total = rowTotal(u, t);
+    const cells = expirations.map(e => {
+      const k = `${u}||${t}||${e}`;
       if (!(k in grid)) return '<td class="empty"></td>';
       const val = grid[k];
       const bg  = colorFn(val, gMin, gMax, gAbsMax);
-      return `<td style="background:${bg};color:${fg(bg)}" title="${val.toFixed(4)}">${val.toFixed(3)}</td>`;
+      const tip = gridCount[k] > 1
+        ? `${val.toFixed(4)}\n${gridCount[k]} ${t} spreads combined`
+        : val.toFixed(4);
+      return `<td style="background:${bg};color:${fg(bg)}" title="${tip}">${val.toFixed(3)}</td>`;
     }).join('');
-    const rtBg = colorFn(rowTotal, gMin, gMax, gAbsMax);
+    const rtBg = colorFn(total, gMin, gMax, gAbsMax);
     return `<tr>
-      <td class="sym">${u}</td>${cells}
-      <td class="tcol" style="background:${rtBg};color:${fg(rtBg)}">${rowTotal.toFixed(3)}</td>
+      <td class="sym">${u}</td><td>${typeBadgeHtml(t)}</td>${cells}
+      <td class="tcol" style="background:${rtBg};color:${fg(rtBg)}">${total.toFixed(3)}</td>
     </tr>`;
   }).join('\n');
 
@@ -179,11 +222,11 @@ function concentrationGrid(spreads, key, title, colorFn, subtitle, sortDir) {
   <h2>${title}</h2>
   ${subtitle ? `<p class="subtitle">${subtitle}</p>` : ''}
   <table>
-    <thead><tr><th>Symbol</th>${headerCells}<th class="tcol">Total</th></tr></thead>
+    <thead><tr><th>Symbol</th><th>Type</th>${headerCells}<th class="tcol">Total</th></tr></thead>
     <tbody>
       ${bodyRows}
       <tr>
-        <td class="sym trow">TOTAL</td>${footerCells}
+        <td class="sym trow" colspan="2">TOTAL</td>${footerCells}
         <td class="tcol trow" style="background:${gtBg};color:${fg(gtBg)}">${grandTotal.toFixed(3)}</td>
       </tr>
     </tbody>
@@ -339,9 +382,10 @@ function scorecard(spreads) {
       const cls = col.thresholdClass ? col.thresholdClass(val) : null;
       return `<td${cls ? ` class="${cls}"` : ''} style="background:${bg};color:${fg(bg)}">${col.fmt(val)}</td>`;
     }).join('');
-    const badge = s.type === 'Bull Put'
-      ? '<span class="badge bull">Bull Put</span>'
-      : '<span class="badge bear">Bear Call</span>';
+    const icBadge = s.isIronCondor
+      ? '<span class="badge ic" title="Paired with a matching Bull Put + Bear Call at the same underlying and expiration — together these form an iron condor.">IC</span>'
+      : '';
+    const badge = typeBadgeHtml(s.type) + icBadge;
     return `${sep}<tr>
       <td class="sym">${s.underlying}</td>
       <td>${badge}</td>
@@ -498,6 +542,7 @@ function scorecard(spreads) {
 const spreads = loadSpreads(csvFile);
 if (!spreads.length) { console.error('No spreads found in', csvFile); process.exit(1); }
 console.log(`Parsed ${spreads.length} spread positions`);
+tagIronCondors(spreads);
 
 const basename = path.basename(csvFile, '.csv');
 
@@ -665,6 +710,8 @@ const html = `<!DOCTYPE html>
     }
     .badge.bull { background: rgba(40,180,40,.18); color: rgb(80,210,80); border: 1px solid rgba(80,210,80,.3); }
     .badge.bear { background: rgba(220,60,60,.18); color: rgb(240,100,100); border: 1px solid rgba(220,60,60,.3); }
+    .badge.other { background: rgba(140,140,140,.18); color: rgb(190,190,190); border: 1px solid rgba(140,140,140,.3); }
+    .badge.ic    { background: rgba(240,165,0,.18);   color: rgb(240,165,0);   border: 1px solid rgba(240,165,0,.4); margin-left: 4px; }
     /* ── Close-out rule thresholds ── */
     td.threshold-tp  { box-shadow: inset 0 0 0 2px #22c55e; font-weight: 700; }
     td.threshold-sl  { box-shadow: inset 0 0 0 2px #ef4444; font-weight: 700; }
