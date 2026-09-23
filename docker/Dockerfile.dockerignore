@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.playwright-mcp
+.env
+.session.json
+node_modules
+data
+reports
+*.csv
+*.json
+!package.json
+!package-lock.json
+*:Zone.Identifier
+preview.png

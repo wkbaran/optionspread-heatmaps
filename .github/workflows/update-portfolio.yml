@@ -1,12 +1,7 @@
 name: Update Portfolio
 
 on:
-  schedule:
-    # Cover both MST (UTC-7) and MDT (UTC-6) for 7:45 AM and 1:25 PM Mountain
-    - cron: '45 13 * * 1-5'  # 7:45 AM MDT
-    - cron: '45 14 * * 1-5'  # 7:45 AM MST
-    - cron: '25 19 * * 1-5'  # 1:25 PM MDT
-    - cron: '25 20 * * 1-5'  # 1:25 PM MST
+  # Scheduled runs moved to the Docker deployment (see compose.yaml / crontab)
   workflow_dispatch: # allow manual trigger
 
 permissions:
@@ -16,42 +11,17 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Check if correct Mountain Time trigger
-        id: time-check
-        if: github.event_name == 'schedule'
-        run: |
-          # Determine MDT (-0600) vs MST (-0700)
-          OFFSET=$(TZ=America/Denver date +%z)
-          if [[ "$OFFSET" == "-0600" ]]; then
-            EXPECTED_MORNING="13"   # 7:45 AM MDT = 13:45 UTC
-            EXPECTED_AFTERNOON="19" # 1:25 PM MDT = 19:25 UTC
-          else
-            EXPECTED_MORNING="14"   # 7:45 AM MST = 14:45 UTC
-            EXPECTED_AFTERNOON="20" # 1:25 PM MST = 20:25 UTC
-          fi
-          TRIGGER_HOUR=$(echo "${{ github.event.schedule }}" | awk '{print $2}')
-          echo "Offset: $OFFSET, trigger hour (UTC): $TRIGGER_HOUR, expected morning: $EXPECTED_MORNING, expected afternoon: $EXPECTED_AFTERNOON"
-
-          if [[ "$TRIGGER_HOUR" != "$EXPECTED_MORNING" && "$TRIGGER_HOUR" != "$EXPECTED_AFTERNOON" ]]; then
-            echo "Wrong trigger for current DST status — skipping"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v6
-        if: steps.time-check.outputs.skip != 'true'
 
       - uses: actions/setup-node@v6
-        if: steps.time-check.outputs.skip != 'true'
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
-        if: steps.time-check.outputs.skip != 'true'
         run: npm ci
 
       - name: Run download and portfolio generation
-        if: steps.time-check.outputs.skip != 'true'
         env:
           OPTIONSTRAT_EMAIL: ${{ secrets.OPTIONSTRAT_EMAIL }}
           OPTIONSTRAT_PASSWORD: ${{ secrets.OPTIONSTRAT_PASSWORD }}
@@ -63,30 +33,24 @@ jobs:
           bash run.sh
 
       - name: Configure AWS credentials
-        if: steps.time-check.outputs.skip != 'true'
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
 
       - name: Upload data files to S3
-        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 sync data/ s3://optionspread-heatmaps-billbaran/data/
 
       - name: Upload reports to S3
-        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 sync reports/ s3://optionspread-heatmaps-billbaran/ --exclude 'index.html'
 
       - name: Generate index from S3 contents
-        if: steps.time-check.outputs.skip != 'true'
         run: aws s3 ls s3://optionspread-heatmaps-billbaran/ | awk '{print $4}' | node generate-index.js --stdin
 
       - name: Upload index and archive to S3
-        if: steps.time-check.outputs.skip != 'true'
         run: |
           aws s3 cp reports/index.html s3://optionspread-heatmaps-billbaran/index.html
           aws s3 cp reports/archive.html s3://optionspread-heatmaps-billbaran/archive.html
 
       - name: Invalidate CloudFront cache
-        if: steps.time-check.outputs.skip != 'true'
         run: aws cloudfront create-invalidation --distribution-id E3AR100VQDUFIT --paths "/*"

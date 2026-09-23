@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   OptionSpread Heatmaps — static report hosting + GitHub Actions OIDC deploy.
-  S3 bucket (private) + CloudFront (HTTPS) + OIDC role for GitHub Actions.
+  S3 bucket (private) + CloudFront (HTTPS) + OIDC role for GitHub Actions
+  + IAM user for the Docker deployment.
   IMPORTANT: Deploy this stack in us-east-1. ACM certificates used by
   CloudFront must live in us-east-1 regardless of where your bucket is.
 
@@ -159,6 +160,31 @@ Resources:
                 Action: cloudfront:CreateInvalidation
                 Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
 
+  # -- Docker deployment (docker/) ----------------------------------------------
+  # Access key is created outside the stack (aws iam create-access-key) so the
+  # secret never appears in stack outputs or events.
+
+  DockerPublishUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub '${BucketName}-docker-publish'
+      Policies:
+        - PolicyName: DeployToS3AndInvalidateCache
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt Bucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${Bucket.Arn}/*'
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
 Outputs:
 
   SiteUrl:
@@ -180,3 +206,7 @@ Outputs:
   DeployRoleArn:
     Description: IAM role ARN — add as GitHub secret AWS_DEPLOY_ROLE_ARN
     Value: !GetAtt GitHubDeployRole.Arn
+
+  DockerPublishUser:
+    Description: IAM user for the Docker deployment — create its access key with aws iam create-access-key
+    Value: !Ref DockerPublishUser

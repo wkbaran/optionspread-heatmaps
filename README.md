@@ -17,6 +17,7 @@ cp .env.example .env # add your OptionStrat credentials
 | Script | Input | Output |
 |---|---|---|
 | `run.sh` | — | Full pipeline: download, convert, portfolio |
+| `publish.sh` | — | `run.sh`, then upload to S3, regenerate the index and invalidate CloudFront |
 | `download.js` | — | `data/*.csv` (downloads Group: Live from OptionStrat, converts xlsx → csv) |
 | `portfolio.js <csv>` | CSV file | `reports/*-portfolio.html`, `reports/*-portfolio.json` |
 | `whatif.js` | — | Embedded in every HTML report (client-side what-if logic) |
@@ -28,6 +29,7 @@ After each run, `reports/index.html` is fully regenerated listing all current re
 ```
 data/       source CSVs (downloaded by download.js, gitignored)
 reports/    generated HTML reports, JSON snapshots, and index.html (gitignored)
+docker/     Dockerfile, compose file, crontab and env template for scheduled publishing
 ```
 
 ## Automated download
@@ -47,6 +49,40 @@ The session cookie is persisted to `.session.json` after the first successful lo
 ### Security note
 
 `npm ci` is intentional: it treats `package-lock.json` as authoritative and fails if anything drifts, preventing a compromised upstream package version from silently entering the build. Never use `npm install` on this project.
+
+## Scheduled publishing (Docker)
+
+The `docker/` directory runs `publish.sh` on a schedule in a container, publishing to https://spreads.billbaran.us.
+
+| File | Purpose |
+|---|---|
+| `docker/Dockerfile` | Node 24 Alpine image with the AWS CLI and [supercronic](https://github.com/aptible/supercronic) |
+| `docker/compose.yaml` | Runs the container; `data/` and `reports/` live in named volumes |
+| `docker/crontab` | Schedule: 7:45 AM and 1:25 PM Mountain, weekdays |
+| `docker/.env.example` | Template for `docker/.env` (OptionStrat + AWS credentials) |
+
+The container runs with `TZ=America/Denver`, so the crontab is in local time and DST is handled automatically. Output goes to `docker compose logs`. Because the volumes persist between runs, `daily-pnl.js` has previous snapshots to compare against.
+
+```bash
+cp docker/.env.example docker/.env      # fill in credentials
+docker compose -f docker/compose.yaml up -d --build
+docker compose -f docker/compose.yaml exec optionspread /app/publish.sh   # publish now
+docker compose -f docker/compose.yaml logs -f
+```
+
+The AWS credentials belong to the `optionspread-heatmaps-billbaran-docker-publish` IAM user defined in `cloudformation.yaml`. It has the same permissions as the GitHub deploy role. Its access key is created outside the stack, so the secret never appears in stack outputs:
+
+```bash
+aws iam create-access-key --user-name optionspread-heatmaps-billbaran-docker-publish
+```
+
+To deploy to a remote Docker host, point the same commands at it. The image is built on the remote host, and `docker/.env` is read locally:
+
+```bash
+docker -H ssh://core@192.168.50.207 compose -f docker/compose.yaml up -d --build
+```
+
+The GitHub **Update Portfolio** workflow is kept for manual runs only. GitHub-scheduled runs were routinely delayed by 3–4 hours.
 
 ## Manual export from OptionStrat
 
@@ -107,4 +143,4 @@ An expandable column guide at the bottom of the scorecard explains EV and all co
 
 ## Requirements
 
-Node.js 20.6+. Dependencies: `xlsx` (SheetJS, xlsx → csv conversion). No browser or Playwright needed — downloads use the OptionStrat API directly.
+Node.js 22.9+ (for `--env-file-if-exists`). Dependencies: `xlsx` (SheetJS, xlsx → csv conversion). No browser or Playwright needed — downloads use the OptionStrat API directly.

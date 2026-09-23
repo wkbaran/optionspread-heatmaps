@@ -10,7 +10,7 @@
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=20.6"
+    "node": ">=22.9"
   },
   "dependencies": {
     "xlsx": "0.18.5"

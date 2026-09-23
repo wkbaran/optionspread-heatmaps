@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "==> Downloading..."
-csv=$(node --env-file=.env download.js | tail -n1)
+csv=$(node --env-file-if-exists=.env download.js | tail -n1)
 
 if [[ -z "$csv" ]]; then
   echo "ERROR: download.js produced no output path" >&2
