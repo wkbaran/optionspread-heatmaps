@@ -19,9 +19,10 @@ aws s3 sync reports/ "s3://$BUCKET/" --exclude 'index.html' --exclude 'archive.h
 
 echo "==> Regenerating index from S3 contents"
 aws s3 ls "s3://$BUCKET/" | awk '{print $4}' | node generate-index.js --stdin
-aws s3 cp reports/index.html "s3://$BUCKET/index.html" --only-show-errors
-aws s3 cp reports/archive.html "s3://$BUCKET/archive.html" --only-show-errors
-aws s3 cp reports/snapshots.json "s3://$BUCKET/snapshots.json" --only-show-errors
+# These three change every run under the same name, so browsers must revalidate them each visit
+for f in index.html archive.html snapshots.json; do
+  aws s3 cp "reports/$f" "s3://$BUCKET/$f" --cache-control no-cache --only-show-errors
+done
 
 echo "==> Invalidating CloudFront cache"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*" \
