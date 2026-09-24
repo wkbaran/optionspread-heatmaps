@@ -17,7 +17,7 @@
   const fmt = (v, dp = 2) => (v < 0 ? "−" : "") + Math.abs(v).toFixed(dp);
   const signed = (v, dp = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(dp);
   const pct = (v) => signed(v, 0) + "%";
-  const money = (v) => (v < 0 ? "−$" : "$") + Math.abs(Math.round(v)).toLocaleString();
+  const money = (v) => { const r = Math.round(v); return (r < 0 ? "−$" : "$") + Math.abs(r).toLocaleString(); };
   const sum = (list, k) => list.reduce((s, p) => s + p[k], 0);
   const median = (xs) => { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
   const expLabel = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });

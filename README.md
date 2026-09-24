@@ -2,7 +2,7 @@
 
 Greek concentration heatmaps and portfolio analysis for options credit spreads, powered by [OptionStrat](https://optionstrat.com) exports.
 
-![Portfolio preview](preview.png)
+![The Spread book report: exit decisions, book totals, the theta heatmap and a spread's detail](docs/screenshots/overview.png)
 
 ## Quick start
 
@@ -114,7 +114,13 @@ Each report is one self-contained HTML page. It embeds its snapshot as JSON and 
 
 **What each spread pays for its risk.** Theta per unit gamma against theta per unit vega. Spreads below the median on both fall in the shaded corner. Those are the first to close when you want capital back. Spreads with zero gamma or vega are listed under the chart instead.
 
+The dashed lines are the book's medians, not the chart's midpoint, so a line sits off-centre when a few spreads are far above the rest.
+
+![Theta per gamma against theta per vega, with the below-median corner shaded](docs/screenshots/risk-chart.png)
+
 **Scorecard.** Every spread with days left, PoP, credit, max loss, EV, progress toward an exit, the greeks, IV and both quality ratios, plus book totals. Select a heading to sort. A column guide below the table explains each one. For progress toward an exit, a gain is a share of max profit and a loss is a share of max loss, matching the two exit rules.
+
+![The scorecard, sorted by days to expiration](docs/screenshots/scorecard.png)
 
 **Try a trade.** Paste one or more rows from the OptionStrat export, comma-separated or copied from Excel. Each trade is added to every total, the heatmap, the chart and the scorecard with a dashed outline, and the totals show how much it changes. Remove a trade with its × chip. Rows that aren't spreads stay in the box with a note.
 
