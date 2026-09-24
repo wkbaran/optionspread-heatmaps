@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  OptionSpread Heatmaps — static report hosting + GitHub Actions OIDC deploy.
-  S3 bucket (private) + CloudFront (HTTPS) + OIDC role for GitHub Actions
-  + IAM user for the Docker deployment.
+  OptionSpread Heatmaps — static report hosting.
+  S3 bucket (private) + CloudFront (HTTPS) + IAM user for the Docker deployment,
+  which is the only publisher. The GitHub Actions OIDC role is no longer used.
   IMPORTANT: Deploy this stack in us-east-1. ACM certificates used by
   CloudFront must live in us-east-1 regardless of where your bucket is.
 
@@ -117,6 +117,7 @@ Resources:
         EvaluateTargetHealth: false
 
   # -- GitHub Actions OIDC federation ------------------------------------------
+  # Unused since the workflow was removed; publishing runs from Docker.
 
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
@@ -204,7 +205,7 @@ Outputs:
     Value: !Ref Bucket
 
   DeployRoleArn:
-    Description: IAM role ARN — add as GitHub secret AWS_DEPLOY_ROLE_ARN
+    Description: IAM role ARN for the removed GitHub Actions workflow (unused)
     Value: !GetAtt GitHubDeployRole.Arn
 
   DockerPublishUser:

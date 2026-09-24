@@ -1,13 +1,13 @@
 {
   "name": "optionspread-heatmaps",
   "version": "1.0.0",
-  "description": "Generate delta/gamma heatmaps from options spread CSV exports",
-  "main": "index.js",
+  "description": "Greek concentration heatmaps and exit decisions for options credit spreads, from OptionStrat exports",
+  "main": "portfolio.js",
   "bin": {
-    "heatmaps": "./index.js"
+    "heatmaps": "./portfolio.js"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "./run.sh"
   },
   "engines": {
     "node": ">=22.9"
