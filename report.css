@@ -1,0 +1,190 @@
+/*
+ * Portfolio report ("Spread book"). Layout only; colours come from theme.css.
+ *
+ * One screen instead of stacked tables: the four book totals double as the
+ * switch for a single heatmap, decisions come before analysis, and clicking
+ * any cell, dot or row opens that spread on the right.
+ */
+.snap { color: var(--sub); font-size: 0.86rem; display: flex; align-items: center; gap: 0.45rem; }
+.snap select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.2rem 0.4rem; }
+.snap-status { color: var(--muted); font-size: 0.8rem; }
+.snap-status.error { color: var(--signal); }
+
+/* ---- what-if panel -------------------------------------------------- */
+.whatif { margin-top: 1rem; padding: 1rem 1.1rem; background: var(--wash); border: 1px solid color-mix(in oklab, var(--signal) 40%, var(--ground)); border-radius: var(--radius-m); }
+.whatif[hidden] { display: none; }
+.whatif h2 { margin: 0 0 0.2rem; font-size: 1.05rem; font-weight: 650; font-stretch: 85%; }
+.whatif p { margin: 0 0 0.6rem; color: var(--sub); font-size: 0.85rem; }
+.whatif-row { display: flex; gap: 0.6rem; align-items: stretch; }
+.whatif textarea {
+  flex: 1; min-height: 2.6rem; resize: vertical; font: inherit; font-size: 0.82rem; font-stretch: 85%;
+  color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.45rem 0.6rem;
+}
+.whatif .error { margin: 0.5rem 0 0; color: var(--signal); font-size: 0.84rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.chips:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0.3rem 0.15rem 0.65rem; border-radius: 999px; background: var(--ground); border: 1px dashed var(--signal); font-size: 0.8rem; }
+.chip button { padding: 0 0.4rem; border: 0; background: transparent; font-size: 0.95rem; line-height: 1.2; }
+
+/* ---- book strip: totals that switch the grid ------------------------ */
+.book { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; }
+.greek {
+  all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 0.1rem; align-content: start;
+  padding: 0.95rem 1.1rem 1rem; background: var(--surface); position: relative;
+}
+.greek + .greek { border-left: 1px solid var(--line); }
+.greek:hover { background: var(--raised); }
+.greek:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+.greek[aria-pressed="true"] { background: var(--ground); }
+.greek[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--signal); }
+.greek .g-name { font-size: 0.95rem; font-weight: 600; font-stretch: 80%; color: var(--sub); }
+.greek[aria-pressed="true"] .g-name { color: var(--ink); }
+.greek .g-val { font-size: 3.1rem; line-height: 1; font-weight: 220; font-stretch: 62%; letter-spacing: -0.02em; }
+.greek[aria-pressed="true"] .g-val { color: var(--signal); font-weight: 330; }
+.greek .g-diff { font-size: 0.95rem; font-stretch: 75%; font-weight: 500; color: var(--signal); margin-left: 0.35rem; letter-spacing: 0; }
+.greek .g-help { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+
+/* ---- decisions ------------------------------------------------------ */
+.decide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 1.25rem; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; }
+.decide section { background: var(--ground); padding: 0.85rem 1.1rem 1rem; min-width: 0; }
+.decide h2 { margin: 0; font-size: 1rem; font-weight: 650; font-stretch: 85%; }
+.decide .d-help { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.78rem; }
+.decide ul { list-style: none; margin: 0; padding: 0; }
+.decide li button {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 3.4rem 1fr auto; gap: 0.6rem; align-items: baseline;
+  padding: 0.3rem 0.4rem; margin: 0 -0.4rem; border-radius: var(--radius-s); font-size: 0.86rem;
+}
+.decide li button:hover, .decide li button:focus-visible { background: var(--raised); outline: none; }
+.decide .sym { font-weight: 750; font-stretch: 112%; }
+.decide .d-what { color: var(--sub); font-size: 0.82rem; }
+.decide .d-num { font-stretch: 75%; font-size: 1.05rem; }
+.decide .d-num.hot { color: var(--signal); font-weight: 600; }
+.decide .empty { color: var(--muted); font-size: 0.84rem; margin: 0; }
+
+/* ---- main split: grid + detail ------------------------------------- */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.5rem; margin-top: 2rem; align-items: start; }
+.section-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem 1rem; margin-bottom: 0.6rem; }
+.section-note { color: var(--sub); font-size: 0.85rem; max-width: 60ch; margin: 0 0 0.8rem; }
+.section-head .section-note { margin: 0; }
+.legend { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.76rem; color: var(--muted); }
+.legend i { display: block; width: 7rem; height: 0.55rem; border-radius: 2px; }
+
+table { border-collapse: collapse; width: 100%; }
+.heat { font-size: 0.86rem; }
+.heat th, .heat td { padding: 0; }
+.heat thead th { font-weight: 500; font-stretch: 85%; color: var(--muted); font-size: 0.78rem; text-align: center; padding: 0 0 0.35rem; }
+.heat thead th .dte { display: block; color: var(--sub); font-size: 0.95rem; font-weight: 600; }
+.heat thead th:first-child { text-align: left; }
+.heat tbody th { text-align: left; font-weight: 750; font-stretch: 112%; padding: 0 0.8rem 0 0; white-space: nowrap; width: 6rem; }
+.heat tbody th small { font-weight: 450; font-stretch: 85%; color: var(--muted); margin-left: 0.3rem; font-size: 0.78rem; }
+.heat td { border: 2px solid var(--ground); }
+.cell {
+  all: unset; box-sizing: border-box; display: block; width: 100%; min-height: 2rem; padding: 0.3rem 0.55rem; text-align: right;
+  font-stretch: 80%; cursor: pointer; border-radius: 3px;
+}
+.cell.none { cursor: default; }
+.cell:focus-visible, .cell.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+.cell.hypo { outline: 2px dashed var(--signal); outline-offset: -3px; }
+.heat .tot { text-align: right; padding: 0.3rem 0.55rem; font-stretch: 80%; font-weight: 650; }
+.heat tfoot td, .heat tfoot th { border-top: 1px solid var(--line-strong); padding-top: 0.45rem; }
+.heat tfoot th { font-weight: 600; font-stretch: 85%; color: var(--sub); }
+
+/* ---- detail --------------------------------------------------------- */
+.detail { position: sticky; top: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.1rem 1.2rem 1.2rem; }
+.detail h3 { margin: 0; font-size: 1.45rem; font-weight: 750; font-stretch: 112%; line-height: 1.1; }
+.detail .d-sub { color: var(--sub); font-size: 0.88rem; margin-top: 0.15rem; }
+.detail .also { margin-top: 0.5rem; font-size: 0.82rem; color: var(--muted); }
+.detail .also button { padding: 0.1rem 0.45rem; font-size: 0.78rem; margin-left: 0.25rem; }
+.progress { margin-top: 1.1rem; }
+.progress .p-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.progress .p-val { font-size: 2.6rem; line-height: 1; font-weight: 250; font-stretch: 62%; letter-spacing: -0.02em; }
+.progress .p-val.hot { color: var(--signal); font-weight: 350; }
+.progress .p-lbl { color: var(--sub); font-size: 0.8rem; text-align: right; max-width: 11rem; line-height: 1.3; }
+/* The bar runs from the stop (25% of max loss) through zero to the close (50% of max profit). */
+.bar { position: relative; height: 0.6rem; margin-top: 0.6rem; background: var(--raised); border-radius: 999px; }
+.bar::before, .bar::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 1.5px; background: var(--ink); }
+.bar::before { left: 0; }
+.bar::after { right: 0; }
+.bar .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--line-strong); }
+.bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.bar .fill.up { background: var(--ink); }
+.bar .fill.down { background: var(--signal); }
+.bar-scale { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; font-stretch: 85%; }
+dl.kv { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 1rem; margin: 1.2rem 0 0; font-size: 0.88rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; font-stretch: 85%; }
+dl.kv .rank { color: var(--muted); font-size: 0.78rem; margin-left: 0.4rem; }
+dl.kv .hot { color: var(--signal); font-weight: 600; }
+.detail h4 { margin: 1.3rem 0 0; font-size: 0.95rem; font-weight: 600; font-stretch: 80%; color: var(--sub); }
+
+/* ---- quality scatter ----------------------------------------------- */
+.quality { margin-top: 2.5rem; display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.5rem; align-items: start; }
+.plot { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.75rem; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+.plot text { fill: var(--muted); font-family: inherit; font-size: 11px; font-stretch: 85%; }
+.plot .lbl { fill: var(--ink); font-weight: 700; font-stretch: 100%; font-size: 11.5px; pointer-events: none; }
+.plot .dot { fill: var(--ink); cursor: pointer; }
+.plot .dot.weak { fill: var(--signal); }
+.plot .dot.sel { stroke: var(--ink); stroke-width: 2; paint-order: stroke; }
+.plot .dot.hypo { fill: none; stroke: var(--signal); stroke-width: 2; stroke-dasharray: 3 2; }
+.plot .dot:focus-visible { outline: none; stroke: var(--signal); stroke-width: 3; }
+.plot .zone { fill: var(--wash); }
+.plot .axis { stroke: var(--line-strong); }
+.plot .med { stroke: var(--line-strong); stroke-dasharray: 3 4; }
+.plot-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--muted); }
+.q-notes { font-size: 0.86rem; color: var(--sub); }
+.q-notes p { margin: 0 0 0.7rem; }
+.q-notes strong { color: var(--ink); font-weight: 650; }
+
+/* ---- scorecard ------------------------------------------------------ */
+.scorecard { margin-top: 2.5rem; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-m); }
+.sc { font-size: 0.85rem; white-space: nowrap; }
+.sc th, .sc td { padding: 0.5rem 0.75rem; text-align: right; }
+.sc thead th { position: sticky; top: 0; background: var(--raised); font-weight: 600; font-stretch: 85%; color: var(--sub); }
+.sc thead th button { all: unset; cursor: pointer; }
+.sc thead th button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.sc thead th[aria-sort] button { color: var(--ink); }
+.sc thead th[aria-sort="ascending"] button::after { content: " ↑"; }
+.sc thead th[aria-sort="descending"] button::after { content: " ↓"; }
+.sc th:first-child, .sc th:nth-child(2), .sc td:first-child, .sc td:nth-child(2) { text-align: left; }
+.sc tbody tr { border-top: 1px solid var(--line); cursor: pointer; }
+.sc tbody tr:hover { background: var(--surface); }
+.sc tbody tr.sel { background: var(--raised); }
+.sc tbody tr.hypo td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+.sc tfoot td { border-top: 1px solid var(--line-strong); font-weight: 650; font-stretch: 85%; }
+.sc tfoot .avg { color: var(--muted); font-weight: 450; margin-left: 0.25rem; }
+.sc .sym { font-weight: 750; font-stretch: 112%; }
+.sc .kind { color: var(--sub); }
+.sc .tag { margin-left: 0.4rem; font-size: 0.75rem; color: var(--muted); }
+.sc .num { font-stretch: 85%; }
+.sc .hot { color: var(--signal); font-weight: 600; }
+.mini { display: inline-block; vertical-align: middle; width: 5.5rem; margin-left: 0.5rem; }
+.mini .bar { height: 0.4rem; margin: 0; }
+
+.guide { margin-top: 1rem; font-size: 0.86rem; color: var(--sub); max-width: 70rem; }
+.guide summary { cursor: pointer; color: var(--ink); font-weight: 600; font-stretch: 85%; }
+.guide dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1.5rem; margin: 0.8rem 0 0; }
+.guide dt { color: var(--ink); font-weight: 600; font-stretch: 85%; }
+.guide dd { margin: 0; max-width: 72ch; }
+
+@media (max-width: 1100px) {
+  .decide { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 1040px) {
+  .split, .quality { grid-template-columns: 1fr; }
+  .detail { position: static; }
+}
+@media (max-width: 720px) {
+  .book { grid-template-columns: repeat(2, 1fr); }
+  .greek:nth-child(3) { border-left: 0; }
+  .greek:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .greek .g-val { font-size: 2.4rem; }
+  .decide { grid-template-columns: 1fr; }
+  .heat-scroll { overflow-x: auto; }
+  .legend { margin-left: 0; }
+  .guide dl { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cell { transition: background-color 180ms ease, color 180ms ease; }
+}

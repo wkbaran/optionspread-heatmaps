@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY *.js run.sh publish.sh ./
+COPY *.js *.css run.sh publish.sh ./
 COPY docker/crontab ./
 RUN chmod +x run.sh publish.sh
 

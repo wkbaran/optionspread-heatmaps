@@ -3,7 +3,7 @@
 const fs       = require('fs');
 const path     = require('path');
 const https    = require('https');
-const wiScript = fs.readFileSync(path.join(__dirname, 'whatif.js'), 'utf8');
+const asset    = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 
 const csvFile = process.argv[2];
 if (!csvFile) { console.error('Usage: node portfolio.js <csv-file>'); process.exit(1); }
@@ -83,724 +83,19 @@ function loadSpreads(filePath) {
   return out;
 }
 
-// ── Iron condor tagging ──────────────────────────────────────────────────────
-// Not a distinct row in the source data — a Bull Put spread and a Bear Call spread
-// that happen to share the same underlying + expiration. Tag both legs so grids
-// and the scorecard can flag the pairing instead of silently merging/hiding it.
-function tagIronCondors(spreads) {
-  const byKey = {};
-  for (const s of spreads) {
-    if (s.type !== 'Bull Put' && s.type !== 'Bear Call') continue;
-    const k = `${s.underlying}||${s.expiration}`;
-    (byKey[k] = byKey[k] || []).push(s);
-  }
-  for (const k in byKey) {
-    const legs = byKey[k];
-    const hasBullPut  = legs.some(s => s.type === 'Bull Put');
-    const hasBearCall = legs.some(s => s.type === 'Bear Call');
-    if (hasBullPut && hasBearCall) legs.forEach(s => { s.isIronCondor = true; });
-  }
-  for (const s of spreads) if (s.isIronCondor === undefined) s.isIronCondor = false;
-  return spreads;
-}
-
-// ── Color Scales ─────────────────────────────────────────────────────────────
-
-// negative=red ← gray → green=positive
-function cDiverging(v, min, max) {
-  const abs = Math.max(Math.abs(min), Math.abs(max), 1e-9);
-  const t   = Math.max(-1, Math.min(1, v / abs));
-  if (t < 0) { const i = -t; return `rgb(${r(220+35*i)},${r(220-180*i)},${r(220-180*i)})`; }
-  else        { const i =  t; return `rgb(${r(220-180*i)},${r(185+35*i)},${r(220-180*i)})`; }
-}
-
-// low=light gray → high=saturated green
-function cGreen(v, max) {
-  const t = Math.max(0, Math.min(1, max > 0 ? v / max : 0));
-  return `rgb(${r(230-170*t)},${r(230)},${r(230-170*t)})`;
-}
-
-// low=light gray → high=saturated red  (pass Math.abs(value))
-function cRed(absV, absMax) {
-  const t = Math.max(0, Math.min(1, absMax > 0 ? absV / absMax : 0));
-  return `rgb(${r(230+25*t)},${r(230-190*t)},${r(230-190*t)})`;
-}
-
-// low=light gray → high=amber
-function cAmber(v, max) {
-  const t = Math.max(0, Math.min(1, max > 0 ? v / max : 0));
-  return `rgb(${r(220+20*t)},${r(220-80*t)},${r(220-200*t)})`;
-}
-
-function r(n)      { return Math.round(n); }
-function fg(bg)    {
-  const m = bg.match(/\d+/g);
-  if (!m) return '#111';
-  const [rv, g, b] = m.map(Number);
-  return (0.299*rv + 0.587*g + 0.114*b) < 140 ? '#fff' : '#111';
-}
-
-function fmtExp(exp) {
-  return new Date(exp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-}
-
-// ── Section 1 & 2: Concentration grids (underlying × expiration) ─────────────
-
-function typeBadgeHtml(type) {
-  return type === 'Bull Put'  ? '<span class="badge bull">Bull Put</span>'
-       : type === 'Bear Call' ? '<span class="badge bear">Bear Call</span>'
-       : '<span class="badge other">Other</span>';
-}
-
-// One row per (underlying, type) — a put spread and a call spread sharing an
-// underlying+expiration (an iron condor) never land in the same cell/row; they each
-// get their own row, sorted by row total like everything else, with no special
-// grouping or adjacency for the underlying they share.
-function concentrationGrid(spreads, key, title, colorFn, subtitle, sortDir) {
-  const sectionId = key + '-grid';
-  const expirations = [...new Set(spreads.map(s => s.expiration))]
-    .sort((a, b) => new Date(a) - new Date(b));
-
-  // cell key: `${underlying}||${type}||${expiration}`
-  const grid = {};
-  const gridCount = {};
-  for (const s of spreads) {
-    const k = `${s.underlying}||${s.type}||${s.expiration}`;
-    grid[k] = (grid[k] || 0) + s[key];
-    gridCount[k] = (gridCount[k] || 0) + 1;
-  }
-
-  const allVals  = Object.values(grid);
-  const gMin     = Math.min(...allVals);
-  const gMax     = Math.max(...allVals);
-  const gAbsMax  = Math.max(Math.abs(gMin), Math.abs(gMax), 1e-9);
-
-  function rowTotal(u, t) {
-    return expirations.reduce((sum, e) => sum + (grid[`${u}||${t}||${e}`] || 0), 0);
-  }
-
-  const rowKeys = [...new Set(spreads.map(s => `${s.underlying}||${s.type}`))]
-    .map(rk => { const [underlying, type] = rk.split('||'); return { underlying, type }; });
-
-  const orderedRows = [...rowKeys].sort((a, b) => {
-    const ta = rowTotal(a.underlying, a.type);
-    const tb = rowTotal(b.underlying, b.type);
-    return sortDir === 'asc' ? ta - tb : tb - ta;
-  });
-
-  const headerCells = expirations.map(e => `<th data-exp="${e}">${fmtExp(e)}</th>`).join('');
-
-  const bodyRows = orderedRows.map(({ underlying: u, type: t }) => {
-    const total = rowTotal(u, t);
-    const cells = expirations.map(e => {
-      const k = `${u}||${t}||${e}`;
-      if (!(k in grid)) return '<td class="empty"></td>';
-      const val = grid[k];
-      const bg  = colorFn(val, gMin, gMax, gAbsMax);
-      const tip = gridCount[k] > 1
-        ? `${val.toFixed(4)}\n${gridCount[k]} ${t} spreads combined`
-        : val.toFixed(4);
-      return `<td style="background:${bg};color:${fg(bg)}" title="${tip}">${val.toFixed(3)}</td>`;
-    }).join('');
-    const rtBg = colorFn(total, gMin, gMax, gAbsMax);
-    return `<tr>
-      <td class="sym">${u}</td><td>${typeBadgeHtml(t)}</td>${cells}
-      <td class="tcol" style="background:${rtBg};color:${fg(rtBg)}">${total.toFixed(3)}</td>
-    </tr>`;
-  }).join('\n');
-
-  const grandTotal   = spreads.reduce((sum, s) => sum + s[key], 0);
-  const footerCells  = expirations.map(e => {
-    const val = spreads.filter(s => s.expiration === e).reduce((sum, s) => sum + s[key], 0);
-    const bg  = colorFn(val, gMin, gMax, gAbsMax);
-    return `<td class="trow" style="background:${bg};color:${fg(bg)}">${val.toFixed(3)}</td>`;
-  }).join('');
-  const gtBg = colorFn(grandTotal, gMin, gMax, gAbsMax);
-
-  return `
-<section data-section="${sectionId}">
-  <h2>${title}</h2>
-  ${subtitle ? `<p class="subtitle">${subtitle}</p>` : ''}
-  <table>
-    <thead><tr><th>Symbol</th><th>Type</th>${headerCells}<th class="tcol">Total</th></tr></thead>
-    <tbody>
-      ${bodyRows}
-      <tr>
-        <td class="sym trow" colspan="2">TOTAL</td>${footerCells}
-        <td class="tcol trow" style="background:${gtBg};color:${fg(gtBg)}">${grandTotal.toFixed(3)}</td>
-      </tr>
-    </tbody>
-  </table>
-</section>`;
-}
-
-// ── Section 3: Theta/|Gamma| quality ranked list ──────────────────────────────
-
-function qualityList(spreads) {
-  const withRatio    = [...spreads].filter(s => s.tgRatio !== null)
-                                   .sort((a, b) => b.tgRatio - a.tgRatio);
-  const withoutRatio = spreads.filter(s => s.tgRatio === null);
-
-  const maxVal = Math.max(...withRatio.map(s => s.tgRatio), 1e-9);
-
-  const rows = [...withRatio, ...withoutRatio].map(s => {
-    if (s.tgRatio === null) {
-      return `<tr>
-        <td class="sym">${s.underlying}</td>
-        <td class="expd">${fmtExp(s.expiration)}</td>
-        <td class="pos">${s.name}</td>
-        <td class="na" title="Gamma = 0; ratio undefined">—</td>
-      </tr>`;
-    }
-    const bg = cAmber(s.tgRatio, maxVal);
-    return `<tr style="background:${bg};color:${fg(bg)}">
-      <td class="sym">${s.underlying}</td>
-      <td class="expd">${fmtExp(s.expiration)}</td>
-      <td class="pos">${s.name}</td>
-      <td class="val">${s.tgRatio.toFixed(3)}</td>
-    </tr>`;
-  }).join('\n');
-
-  return `
-<section data-section="quality-tg">
-  <h2>Theta / |Gamma| Quality</h2>
-  <p class="subtitle">Daily time decay collected per unit of convexity risk. Higher = better compensated. Sorted best &rarr; worst.</p>
-  <table>
-    <thead><tr><th>Symbol</th><th>Expiry</th><th>Position</th><th>Θ / |Γ|</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-</section>`;
-}
-
-// ── Section 3b: Theta/|Vega| quality ranked list ─────────────────────────────
-
-function vegaQualityList(spreads) {
-  const withRatio    = [...spreads].filter(s => s.tvRatio !== null)
-                                   .sort((a, b) => b.tvRatio - a.tvRatio);
-  const withoutRatio = spreads.filter(s => s.tvRatio === null);
-
-  const maxVal = Math.max(...withRatio.map(s => s.tvRatio), 1e-9);
-
-  const rows = [...withRatio, ...withoutRatio].map(s => {
-    if (s.tvRatio === null) {
-      return `<tr>
-        <td class="sym">${s.underlying}</td>
-        <td class="expd">${fmtExp(s.expiration)}</td>
-        <td class="pos">${s.name}</td>
-        <td class="na" title="Vega = 0; ratio undefined">—</td>
-      </tr>`;
-    }
-    const bg = cAmber(s.tvRatio, maxVal);
-    return `<tr style="background:${bg};color:${fg(bg)}">
-      <td class="sym">${s.underlying}</td>
-      <td class="expd">${fmtExp(s.expiration)}</td>
-      <td class="pos">${s.name}</td>
-      <td class="val">${s.tvRatio.toFixed(3)}</td>
-    </tr>`;
-  }).join('\n');
-
-  return `
-<section data-section="quality-tv">
-  <h2>Theta / |Vega| Quality</h2>
-  <p class="subtitle">Daily time decay collected per unit of volatility exposure. Higher = better compensated for a vol spike. Sorted best &rarr; worst.</p>
-  <table>
-    <thead><tr><th>Symbol</th><th>Expiry</th><th>Position</th><th>Θ / |V|</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-</section>`;
-}
-
-// ── Section 4: Per-position scorecard ────────────────────────────────────────
-
-function scorecard(spreads) {
-  const sorted = [...spreads].sort((a, b) => {
-    const d = new Date(a.expiration) - new Date(b.expiration);
-    return d !== 0 ? d : b.theta - a.theta;
-  });
-
-  // Column spec: key, header, format, colorFn(value, colStats), optional thresholdClass(v)
-  const cols = [
-    { key: 'dte',       hdr: 'DTE',       fmt: v => String(v),
-      color: (v, st) => cAmber(Math.max(0, 30 - v), 30),
-      nullable: true,
-      thresholdClass: v => v <= 21 ? 'threshold-dte' : null },
-    { key: 'chance',    hdr: 'Chance',    fmt: v => (v*100).toFixed(1)+'%',
-      color: (v, st) => cGreen(v, st.max) },
-    { key: 'credit',    hdr: 'Credit',    fmt: v => '$'+v.toFixed(0),
-      color: (v, st) => cGreen(v, st.max) },
-    { key: 'maxProfit', hdr: 'Max Profit',fmt: v => '$'+v.toFixed(0),
-      color: (v, st) => cGreen(v, st.max) },
-    { key: 'maxLoss',   hdr: 'Max Loss',  fmt: v => '$'+v.toFixed(0),
-      color: (v, st) => cRed(v, st.max) },
-    { key: 'ev',        hdr: 'EV',        fmt: v => (v<0?'-$':'$')+Math.abs(v).toFixed(0),
-      color: (v, st) => cDiverging(v, st.min, st.max) },
-    { key: 'theta',     hdr: 'Θ Theta',   fmt: v => v.toFixed(3),
-      color: (v, st) => cGreen(v, st.max) },
-    { key: 'vega',      hdr: 'Vega',      fmt: v => v.toFixed(3),
-      color: (v, st) => cRed(Math.abs(v), st.absMax) },
-    { key: 'gamma',     hdr: 'Γ Gamma',   fmt: v => v.toFixed(4),
-      color: (v, st) => cDiverging(v, st.min, st.max) },
-    { key: 'iv',        hdr: 'IV',        fmt: v => v.toFixed(1)+'%',
-      color: (v, st) => cAmber(v, st.max) },
-    { key: 'tgRatio',   hdr: 'Θ/|Γ|',    fmt: v => v == null ? '—' : v.toFixed(2),
-      color: (v, st) => v == null ? '#1e2330' : cAmber(v, st.max), nullable: true },
-    { key: 'tvRatio',   hdr: 'Θ/|V|',    fmt: v => v == null ? '—' : v.toFixed(2),
-      color: (v, st) => v == null ? '#1e2330' : cAmber(v, st.max), nullable: true },
-    { key: 'returnPct', hdr: 'Return',    fmt: v => v.toFixed(1)+'%',
-      color: (v, st) => cDiverging(v, st.min, st.max),
-      thresholdClass: v => v >= 50 ? 'threshold-tp' : null },
-    { key: 'lossOfRisk', hdr: 'Loss/Risk', fmt: v => v.toFixed(1)+'%',
-      color: (v, st) => cRed(Math.abs(v), Math.max(st.absMax, 25)),
-      nullable: true,
-      thresholdClass: v => v <= -25 ? 'threshold-sl' : null },
-  ];
-
-  // Per-column stats
-  const stats = {};
-  for (const col of cols) {
-    const vals = sorted.map(s => s[col.key]).filter(v => v != null && !isNaN(v));
-    stats[col.key] = {
-      min:    Math.min(...vals),
-      max:    Math.max(...vals),
-      absMax: Math.max(...vals.map(Math.abs), 1e-9),
-    };
-  }
-
-  const headerCells = cols.map(c => `<th>${c.hdr}</th>`).join('');
-
-  let lastExp = null;
-  const rows = sorted.map(s => {
-    let sep = '';
-    if (s.expiration !== lastExp) {
-      if (lastExp !== null) sep = `<tr class="exp-divider"><td colspan="${cols.length + 3}"></td></tr>`;
-      lastExp = s.expiration;
-    }
-    const cells = cols.map(col => {
-      const val = s[col.key];
-      if (val == null || isNaN(val)) return `<td class="na">—</td>`;
-      const bg  = col.color(val, stats[col.key]);
-      const cls = col.thresholdClass ? col.thresholdClass(val) : null;
-      return `<td${cls ? ` class="${cls}"` : ''} style="background:${bg};color:${fg(bg)}">${col.fmt(val)}</td>`;
-    }).join('');
-    const icBadge = s.isIronCondor
-      ? '<span class="badge ic" title="Paired with a matching Bull Put + Bear Call at the same underlying and expiration — together these form an iron condor.">IC</span>'
-      : '';
-    const badge = typeBadgeHtml(s.type) + icBadge;
-    return `${sep}<tr>
-      <td class="sym">${s.underlying}</td>
-      <td>${badge}</td>
-      <td class="expd">${fmtExp(s.expiration)}</td>
-      ${cells}
-    </tr>`;
-  }).join('\n');
-
-  // Summary footer
-  const totalCells = cols.map(col => {
-    // Averages for rates/ratios
-    if (col.key === 'dte') {
-      return `<td class="trow na">—</td>`;
-    }
-    if (col.key === 'chance') {
-      const avg = spreads.reduce((a, s) => a + s.chance, 0) / spreads.length;
-      const bg  = col.color(avg, stats[col.key]);
-      return `<td class="trow" style="background:${bg};color:${fg(bg)}">${(avg*100).toFixed(1)}% avg</td>`;
-    }
-    if (col.key === 'iv') {
-      const avg = spreads.reduce((a, s) => a + s.iv, 0) / spreads.length;
-      const bg  = col.color(avg, stats[col.key]);
-      return `<td class="trow" style="background:${bg};color:${fg(bg)}">${avg.toFixed(1)}% avg</td>`;
-    }
-    if (col.key === 'tgRatio') {
-      // Portfolio-level ratio: sum(theta) / |sum(gamma)|
-      const tTotal = spreads.reduce((a, s) => a + s.theta, 0);
-      const gTotal = spreads.reduce((a, s) => a + s.gamma, 0);
-      const ratio  = gTotal !== 0 ? tTotal / Math.abs(gTotal) : null;
-      if (ratio == null) return `<td class="trow na">—</td>`;
-      const bg = col.color(ratio, stats[col.key]);
-      return `<td class="trow" style="background:${bg};color:${fg(bg)}">${ratio.toFixed(2)}</td>`;
-    }
-    if (col.key === 'lossOfRisk') {
-      // Portfolio-level: total current P&L / total max risk
-      const totalPnL    = spreads.reduce((a, s) => a + (s.returnPct / 100) * s.maxProfit, 0);
-      const totalMaxLoss = spreads.reduce((a, s) => a + s.maxLoss, 0);
-      const portLoss    = totalMaxLoss > 0 ? totalPnL / totalMaxLoss * 100 : null;
-      if (portLoss == null || portLoss >= 0) return `<td class="trow na">—</td>`;
-      const bg = col.color(portLoss, stats[col.key]);
-      return `<td class="trow" style="background:${bg};color:${fg(bg)}">${portLoss.toFixed(1)}%</td>`;
-    }
-    const total = spreads.reduce((a, s) => a + (s[col.key] || 0), 0);
-    const bg    = col.color(total, stats[col.key]);
-    return `<td class="trow" style="background:${bg};color:${fg(bg)}">${col.fmt(total)}</td>`;
-  }).join('');
-
-  return `
-<section data-section="scorecard">
-  <h2>Position Scorecard</h2>
-  <p class="subtitle">Each column normalized independently. Grouped by expiration, sorted by Theta within each group.</p>
-  <table>
-    <thead><tr><th>Symbol</th><th>Type</th><th>Expiry</th>${headerCells}</tr></thead>
-    <tbody>
-      ${rows}
-      <tr class="exp-divider"><td colspan="${cols.length + 3}"></td></tr>
-      <tr>
-        <td class="sym trow" colspan="3">TOTAL / AVG</td>
-        ${totalCells}
-      </tr>
-    </tbody>
-  </table>
-  <details class="col-guide">
-    <summary>Column guide — EV &amp; Greeks</summary>
-    <dl>
-      <dt>DTE</dt>
-      <dd>
-        Days to expiration as of when this report was generated. Highlighted in amber when <strong>≤ 21</strong> —
-        the target window to close or roll positions to avoid gamma risk and assignment complications near expiry.
-      </dd>
-
-      <dt>Loss/Risk</dt>
-      <dd>
-        Current loss expressed as a percentage of maximum possible loss (i.e. the capital at risk).
-        Only shown for losing positions — blank for positions currently at a gain.
-        Formula: <code>(current P&amp;L / max loss) × 100</code>.
-        Highlighted in red when <strong>≤ −25%</strong>, which is the stop-loss close-out threshold.
-        Unlike <em>Return</em> (which is % of max profit), this metric uses the same denominator as the actual risk taken.
-      </dd>
-
-      <dt>Return</dt>
-      <dd>
-        Current mark-to-market return on the position as a percentage of max profit.
-        100% means the spread has expired worthless and you kept all the premium.
-        Negative means the position is currently at a loss relative to entry.
-        Highlighted in green when <strong>≥ 50%</strong>, the take-profit close-out threshold.
-        Colour is diverging: green for positive return, red for negative.
-      </dd>
-
-      <dt>EV</dt>
-      <dd>
-        Binary-outcome expected value: <code>Chance × Max Profit − (1 − Chance) × Max Loss</code>.
-        Treats the trade as either expiring fully worthless (max profit) or reaching max loss — nothing in between.
-        <strong>Negative EV is normal and expected</strong> for credit spreads: max loss is typically 4–10× max profit,
-        so even an 80% winner produces a negative number. Use EV as a <em>relative</em> ranking across positions,
-        not as an absolute signal. A less-negative EV means the risk/reward ratio is better for a given probability.
-      </dd>
-
-      <dt>Θ Theta</dt>
-      <dd>
-        Daily time decay in dollars. Positive means the position earns money each day that passes with everything else held constant.
-        Credit spreads are short premium, so theta is always positive — you are the one collecting the decay.
-        The Theta Concentration section at the top of this page shows how this is distributed across underlyings and expirations.
-      </dd>
-
-      <dt>Vega</dt>
-      <dd>
-        Dollar change in position value per 1% rise in implied volatility (IV).
-        Negative for all credit spreads — you sold premium, so a spike in IV increases the value of what you owe and hurts you.
-        The magnitude tells you how exposed a position is to a volatility event.
-        The Vega Concentration section shows this aggregated across the book.
-      </dd>
-
-      <dt>Γ Gamma</dt>
-      <dd>
-        Rate of change of delta per $1 move in the underlying. Negative for credit spreads — a large move in either direction
-        increases your directional exposure in the wrong direction (losses accelerate as the underlying moves against you).
-        Near-expiry, at-the-money positions carry the most gamma risk.
-      </dd>
-
-      <dt>IV</dt>
-      <dd>
-        Implied volatility of the underlying at the time the position was entered.
-        Higher IV at entry means you collected more premium relative to the width of the spread —
-        generally a more favourable entry environment for credit strategies.
-        Not updated in real time; it reflects the entry conditions.
-      </dd>
-
-      <dt>Θ / |Γ|</dt>
-      <dd>
-        Quality ratio: how much daily theta you earn per unit of gamma risk.
-        Higher is better — the position is well compensated for the convexity exposure it carries.
-        Useful for comparing two positions with similar probability profiles but different risk/reward dynamics.
-        Positions with gamma = 0 (deep in- or out-of-the-money, no convexity) are excluded from ranking.
-      </dd>
-
-      <dt>Θ / |V|</dt>
-      <dd>
-        How much daily theta you earn per dollar lost if implied volatility rises by 1%.
-        Higher is better — the position is well compensated for its volatility exposure.
-        Low values identify positions that are cheapest to close into a vol spike: you are earning little
-        time decay relative to how much a sustained IV expansion would hurt you.
-        Complements Θ/|Γ| — gamma risk is acute and move-driven, vega risk is broader and regime-driven.
-        A position can score well on one and poorly on the other.
-      </dd>
-
-    </dl>
-  </details>
-</section>`;
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 const spreads = loadSpreads(csvFile);
 if (!spreads.length) { console.error('No spreads found in', csvFile); process.exit(1); }
 console.log(`Parsed ${spreads.length} spread positions`);
-tagIronCondors(spreads);
 
 const basename = path.basename(csvFile, '.csv');
-
-const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Portfolio — ${basename}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: #0a0e1a;
-      color: #c9d1d9;
-      padding: 28px 24px;
-      line-height: 1.4;
-    }
-    h1 {
-      font-size: 1.3rem;
-      font-weight: 600;
-      color: #e6edf3;
-      text-align: center;
-      margin-bottom: 6px;
-      letter-spacing: .03em;
-    }
-    .page-sub {
-      text-align: center;
-      color: #6e7681;
-      font-size: 12px;
-      margin-bottom: 12px;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-    }
-    .page-nav {
-      text-align: right;
-      margin-bottom: 24px;
-    }
-    .page-nav a {
-      color: #8b949e;
-      font-size: 12px;
-      text-decoration: none;
-    }
-    .page-nav a:hover { color: #58a6ff; }
-    h2 {
-      font-size: .78rem;
-      color: #f0a500;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      font-weight: 700;
-    }
-    section {
-      background: #10151f;
-      border: 1px solid #2a3040;
-      border-radius: 8px;
-      padding: 20px 22px;
-      margin-bottom: 32px;
-      overflow-x: auto;
-    }
-    p.subtitle {
-      font-size: 11px;
-      color: #6e7681;
-      margin-bottom: 12px;
-    }
-    p.footnote {
-      font-size: 11px;
-      color: #6e7681;
-      margin-top: 10px;
-      font-style: italic;
-    }
-    table {
-      border-collapse: collapse;
-      font-size: 12px;
-      min-width: 100%;
-    }
-    th {
-      background: #1c2230;
-      color: #8b949e;
-      padding: 7px 12px;
-      text-align: left;
-      border: 1px solid #2a3040;
-      white-space: nowrap;
-      font-weight: 600;
-      letter-spacing: .04em;
-      font-size: 11px;
-    }
-    td {
-      padding: 5px 12px;
-      border: 1px solid #1c2230;
-      white-space: nowrap;
-      transition: filter .1s;
-    }
-    tr:hover td { filter: brightness(1.14); }
-    td.sym  { font-weight: 700; font-size: 13px; min-width: 68px; }
-    td.expd { font-size: 11px; color: #8b949e; min-width: 78px; }
-    td.pos  { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-    td.val  { text-align: right; font-family: 'Cascadia Code', 'Fira Mono', monospace; font-weight: 600; min-width: 72px; }
-    td.na   { color: #444; text-align: center; background: #10151f; }
-    td.empty { background: #0a0e1a; min-width: 64px; }
-    td.tcol { border-left: 2px solid #f0a500; font-weight: 700; text-align: right; }
-    td.trow { position: relative; border-top: 2px solid #f0a500; font-weight: 700; text-align: right; }
-    td.trow.na { border-top: 2px solid #f0a500; }
-    th.tcol { border-left: 2px solid #f0a500; }
-    tr.exp-divider td { padding: 2px 0; background: #0a0e1a; border: none; }
-    details.col-guide {
-      margin-top: 16px;
-      border: 1px solid #2a3040;
-      border-radius: 6px;
-      padding: 0;
-    }
-    details.col-guide[open] { padding-bottom: 16px; }
-    details.col-guide summary {
-      cursor: pointer;
-      padding: 10px 14px;
-      font-size: 11px;
-      font-weight: 700;
-      color: #8b949e;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      list-style: none;
-      user-select: none;
-    }
-    details.col-guide summary::-webkit-details-marker { display: none; }
-    details.col-guide summary::before {
-      content: '▸ ';
-      color: #f0a500;
-    }
-    details.col-guide[open] summary::before { content: '▾ '; }
-    details.col-guide dl {
-      margin: 4px 14px 0;
-      display: grid;
-      grid-template-columns: max-content 1fr;
-      gap: 6px 20px;
-    }
-    details.col-guide dt {
-      font-family: 'Cascadia Code', 'Fira Mono', monospace;
-      font-size: 12px;
-      font-weight: 700;
-      color: #f0a500;
-      padding-top: 2px;
-      white-space: nowrap;
-    }
-    details.col-guide dd {
-      font-size: 12px;
-      color: #8b949e;
-      line-height: 1.55;
-    }
-    details.col-guide dd strong { color: #c9d1d9; }
-    details.col-guide dd em { color: #adbac7; font-style: italic; }
-    details.col-guide dd code {
-      font-family: 'Cascadia Code', 'Fira Mono', monospace;
-      font-size: 11px;
-      color: #e6edf3;
-      background: #1c2230;
-      border-radius: 3px;
-      padding: 1px 5px;
-    }
-    .badge {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 10px;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-    .badge.bull { background: rgba(40,180,40,.18); color: rgb(80,210,80); border: 1px solid rgba(80,210,80,.3); }
-    .badge.bear { background: rgba(220,60,60,.18); color: rgb(240,100,100); border: 1px solid rgba(220,60,60,.3); }
-    .badge.other { background: rgba(140,140,140,.18); color: rgb(190,190,190); border: 1px solid rgba(140,140,140,.3); }
-    .badge.ic    { background: rgba(240,165,0,.18);   color: rgb(240,165,0);   border: 1px solid rgba(240,165,0,.4); margin-left: 4px; }
-    /* ── Close-out rule thresholds ── */
-    td.threshold-tp  { box-shadow: inset 0 0 0 2px #22c55e; font-weight: 700; }
-    td.threshold-sl  { box-shadow: inset 0 0 0 2px #ef4444; font-weight: 700; }
-    td.threshold-dte { box-shadow: inset 0 0 0 2px #f0a500; font-weight: 700; }
-    /* ── What-if panel ── */
-    #wi-panel { background: #10151f; border: 1px solid #2a3040; border-radius: 8px; padding: 14px 18px; margin-bottom: 28px; }
-    #wi-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-    #wi-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-    .wi-pill { display: inline-flex; align-items: center; gap: 5px; background: var(--wi-bg); border: 1px solid var(--wi-accent); border-radius: 20px; padding: 3px 8px 3px 11px; font-size: 11px; color: var(--wi-accent); font-weight: 600; }
-    .wi-pill button { background: none; border: none; color: var(--wi-accent); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; opacity: .7; }
-    .wi-pill button:hover { opacity: 1; }
-    #wi-row { display: flex; gap: 8px; }
-    #wi-input { flex: 1; background: #0a0e1a; border: 1px solid #2a3040; border-radius: 6px; color: #c9d1d9; font-family: 'Cascadia Code', 'Fira Mono', monospace; font-size: 12px; padding: 7px 12px; outline: none; transition: border-color .15s; }
-    #wi-input:focus { border-color: #f0a500; }
-    #wi-btn { background: #f0a500; border: none; border-radius: 6px; color: #0a0e1a; cursor: pointer; font-size: 12px; font-weight: 700; padding: 7px 16px; letter-spacing: .04em; transition: background .15s; }
-    #wi-btn:hover { background: #f5b830; }
-    #wi-hint { font-size: 10px; color: #555; margin-top: 7px; }
-    tr.wi-row { --wi-accent: #f0a500; --wi-bg: rgba(240,165,0,.10); }
-    tr.wi-row td { border-top: 3px solid var(--wi-accent) !important; border-bottom: 3px solid var(--wi-accent) !important; }
-    tr.wi-row td:first-child { border-left: 3px solid var(--wi-accent) !important; }
-    tr.wi-row td:last-child  { border-right: 3px solid var(--wi-accent) !important; }
-    tr.wi-row:hover td { filter: brightness(1.15); }
-    tr.wi-row + tr td.trow::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #f0a500; pointer-events: none; }
-  </style>
-</head>
-<body>
-<h1>Portfolio Analysis &mdash; ${basename}</h1>
-<p class="page-sub">Theta &middot; Vega &middot; Delta &middot; Gamma &middot; Quality &middot; Scorecard</p>
-<nav class="page-nav"><a href="archive.html">Archive</a></nav>
-<div id="wi-panel">
-  <div id="wi-pills-wrap" style="display:none"><div id="wi-pills"></div></div>
-  <div id="wi-row">
-    <input id="wi-input" type="text" placeholder="Paste a spread CSV row to model it as a what-if…" spellcheck="false" autocomplete="off" />
-    <button id="wi-btn">Add</button>
-  </div>
-  <p id="wi-hint">Paste a spread row from the exported CSV. Press Enter or click Add. Each spread appears as a pill above and is highlighted in every table below.</p>
-</div>
-
-${concentrationGrid(
-  spreads, 'theta',
-  'Theta Concentration',
-  (v, min, max, absMax) => cGreen(v, max),
-  'Daily time decay accrual by underlying and expiration. Sorted by row total descending. Grand total = portfolio theta.',
-  'desc'
-)}
-
-${concentrationGrid(
-  spreads, 'delta',
-  'Delta Concentration — Directional Exposure',
-  (v, min, max, absMax) => cDiverging(v, min, max),
-  'Net directional exposure by underlying and expiration. Bull Put spreads are positive delta, Bear Call spreads are negative. Sorted most positive first.',
-  'desc'
-)}
-
-${concentrationGrid(
-  spreads, 'gamma',
-  'Gamma Concentration — Convexity Risk',
-  (v, min, max, absMax) => cRed(Math.abs(v), absMax),
-  'All values are negative (credit spreads are short gamma). More red = more exposure to large moves in either direction. Sorted by row total ascending (most exposed first).',
-  'asc'
-)}
-
-${concentrationGrid(
-  spreads, 'vega',
-  'Vega Concentration — Short Volatility Risk',
-  (v, min, max, absMax) => cRed(Math.abs(v), absMax),
-  'All values are negative (short premium = short vega). Sorted by row total ascending (most exposed first). Grand total = how much the book loses per 1% rise in IV across all positions.',
-  'asc'
-)}
-
-${qualityList(spreads)}
-
-${vegaQualityList(spreads)}
-
-${scorecard(spreads)}
-
-<script>${wiScript}</script>
-</body>
-</html>`;
-
 const reportsDir = path.join(__dirname, 'reports');
 fs.mkdirSync(reportsDir, { recursive: true });
-const outFile = path.join(reportsDir, basename + '-portfolio.html');
-fs.writeFileSync(outFile, html);
-console.log(`Wrote → ${outFile}`);
 
 // ── JSON snapshot ─────────────────────────────────────────────────────────────
-// Mirrors the Position Scorecard. Saved to data/ alongside the source CSV so
-// each snapshot is timestamped and can be used for trend graphs or risk checks.
+// Written next to the report. The report page embeds the same object and can
+// load other snapshots' JSON files to redraw itself (see report.js).
 
 function fmtExpISO(expStr) {
   // "4/17/26 14:00" or "4/17/2026 14:00" → "2026-04-17"
@@ -810,11 +105,21 @@ function fmtExpISO(expStr) {
   return `${year}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
 }
 
-// Parse timestamp from CSV filename (e.g. live-active-...-2026-05-07_19-22.csv → 2026-05-07T19:22:00Z)
+// download.js stamps filenames with America/Denver wall-clock time; turn one into an instant.
+function fromDenver(date, hh, mm) {
+  const guess = new Date(`${date}T${hh}:${mm}:00Z`);
+  const off = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'longOffset' })
+    .formatToParts(guess).find(p => p.type === 'timeZoneName').value; // e.g. "GMT-06:00"
+  const m = off.match(/([+-])(\d{2}):(\d{2})/);
+  const mins = m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+  return new Date(guess.getTime() - mins * 60000);
+}
+
+// Parse timestamp from CSV filename (e.g. live-active-...-2026-05-07_13-22.csv → 1:22 PM Mountain)
 // Falls back to now if the filename doesn't contain a recognisable date.
 function tsFromFilename(filename) {
   const m = path.basename(filename).match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
-  return m ? new Date(`${m[1]}T${m[2]}:${m[3]}:00Z`) : new Date();
+  return m ? fromDenver(m[1], m[2], m[3]) : new Date();
 }
 const snapshotTime = tsFromFilename(csvFile);
 
@@ -845,6 +150,119 @@ const snapshot = {
 const jsonFile = path.join(reportsDir, basename + '-portfolio.json');
 fs.writeFileSync(jsonFile, JSON.stringify(snapshot, null, 2));
 console.log(`Wrote → ${jsonFile}`);
+
+// ── HTML report ───────────────────────────────────────────────────────────────
+// A shell plus the snapshot; report.js draws everything in the browser.
+
+const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+// Keep "</script>" inside the data from closing the tag.
+const embedJSON = obj => JSON.stringify(obj).replace(/</g, '\\u003c');
+
+const html = `<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spread book</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='12' y='12' width='34' height='34' rx='6' fill='%23f3a83b'/><rect x='54' y='54' width='34' height='34' rx='6' fill='%23f3a83b'/><rect x='54' y='12' width='34' height='34' rx='6' fill='%23f3a83b' opacity='.45'/><rect x='12' y='54' width='34' height='34' rx='6' fill='%23f3a83b' opacity='.45'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<script>
+  try { if (localStorage.getItem("optionspread.theme") === "light") document.documentElement.setAttribute("data-theme", "light"); } catch (e) {}
+</script>
+<script>${asset('palette.js')}</script>
+<style>
+${asset('theme.css')}
+${asset('report.css')}
+</style>
+</head>
+<body data-base="${escAttr(basename)}">
+<header class="top">
+  <h1 class="brand"><a href="index.html">Spread book</a></h1>
+  <label class="snap">Snapshot <select id="snapshot"></select></label>
+  <span class="snap-status" id="snap-status" role="status"></span>
+  <span class="spacer"></span>
+  <nav><a href="archive.html">Archive</a></nav>
+  <button id="theme-btn" type="button">Light mode</button>
+  <button id="whatif-btn" type="button" class="btn-signal" aria-expanded="false" aria-controls="whatif">Try a trade</button>
+</header>
+
+<main class="wrap">
+  <section class="whatif" id="whatif" hidden>
+    <h2>Try a trade before you place it</h2>
+    <p>Paste a row from the OptionStrat export, or several rows copied from Excel. Each trade is added to every total, the grid and the scorecard with a dashed outline, so you can see what it changes.</p>
+    <div class="whatif-row">
+      <textarea id="whatif-text" aria-label="Spread rows from the OptionStrat export" spellcheck="false" placeholder="AAPL Jun 18th 180/185 Bull Put Spread,0%,$0,..."></textarea>
+      <button id="whatif-add" type="button" class="btn-signal">Add to book</button>
+    </div>
+    <p class="error" id="whatif-error" role="alert" hidden></p>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <div class="decide" id="decide"></div>
+
+  <div class="book" id="book" role="group" aria-label="Book totals. Choose one to show it in the grid."></div>
+
+  <div class="split">
+    <section>
+      <div class="section-head">
+        <h2 class="section-title" id="grid-title">Theta by underlying and expiration</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+      <p class="section-note" id="grid-note"></p>
+      <div class="heat-scroll"><table class="heat" id="heat"></table></div>
+    </section>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+
+  <section class="quality">
+    <div>
+      <div class="section-head">
+        <h2 class="section-title">What each spread pays for its risk</h2>
+      </div>
+      <div class="plot" id="plot"></div>
+    </div>
+    <div class="q-notes">
+      <p><strong>Right</strong> means more theta for each unit of gamma. These hold up better through a sharp move.</p>
+      <p><strong>Up</strong> means more theta for each unit of vega. These hold up better through an IV spike.</p>
+      <p>The shaded corner is below the median on both. Those spreads are the first to close when you want capital back.</p>
+    </div>
+  </section>
+
+  <section class="scorecard">
+    <div class="section-head">
+      <h2 class="section-title">Scorecard</h2>
+      <span class="section-note">Select a heading to sort. Gains count toward the close at 50% of max profit, losses toward the stop at 25% of max loss.</span>
+    </div>
+    <div class="table-scroll"><table class="sc" id="sc"></table></div>
+    <details class="guide">
+      <summary>What the columns mean</summary>
+      <dl>
+        <dt>Days</dt><dd>Days to expiration as of the snapshot. Highlighted at 21 or fewer, the window to close or roll before gamma speeds up.</dd>
+        <dt>PoP</dt><dd>OptionStrat's probability that both legs expire worthless and you keep the full credit.</dd>
+        <dt>EV</dt><dd><code>PoP × max profit − (1 − PoP) × max loss</code>. It treats the trade as all or nothing, so it's usually negative for credit spreads. Use it to compare positions, not as a signal on its own.</dd>
+        <dt>Toward an exit</dt><dd>A gain is shown as a share of max profit and counts toward the close at 50%. A loss is shown as a share of max loss and counts toward the stop at 25%. The bar's left end is the stop and its right end is the close.</dd>
+        <dt>Theta</dt><dd>Dollars earned per day from time decay, all else equal.</dd>
+        <dt>Delta</dt><dd>Direction. Bull puts are positive, bear calls negative.</dd>
+        <dt>Gamma</dt><dd>How fast delta moves against you. Negative for credit spreads, and largest near expiration and near the short strike.</dd>
+        <dt>Vega</dt><dd>Dollars lost per one-point rise in implied volatility.</dd>
+        <dt>IV</dt><dd>Implied volatility from the export.</dd>
+        <dt>Θ per Γ</dt><dd>Theta earned for each unit of gamma. Low values are the most exposed to a sharp move. Blank when gamma is zero.</dd>
+        <dt>Θ per V</dt><dd>Theta earned for each unit of vega. Low values are the first to close into a volatility spike.</dd>
+      </dl>
+    </details>
+  </section>
+</main>
+
+<script type="application/json" id="book-data">${embedJSON(snapshot)}</script>
+<script>${asset('report.js')}</script>
+</body>
+</html>`;
+
+const outFile = path.join(reportsDir, basename + '-portfolio.html');
+fs.writeFileSync(outFile, html);
+console.log(`Wrote → ${outFile}`);
 
 // ── Underlying price snapshot ─────────────────────────────────────────────────
 // Fetch current prices so daily-pnl.js can do exact attribution without having

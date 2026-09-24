@@ -20,9 +20,11 @@ cp .env.example .env # add your OptionStrat credentials
 | `publish.sh` | — | `run.sh`, then upload to S3, regenerate the index and invalidate CloudFront |
 | `download.js` | — | `data/*.csv` (downloads Group: Live from OptionStrat, converts xlsx → csv) |
 | `portfolio.js <csv>` | CSV file | `reports/*-portfolio.html`, `reports/*-portfolio.json` |
-| `whatif.js` | — | Embedded in every HTML report (client-side what-if logic) |
+| `report.js`, `report.css`, `theme.css`, `palette.js` | — | Inlined into every portfolio report; the page is drawn in the browser from the embedded snapshot |
+| `generate-index.js` | file list | `reports/index.html` (copy of the latest report), `reports/archive.html`, `reports/snapshots.json` |
+| `whatif.js` | — | Embedded in the legacy heatmaps report from `index.js` |
 
-After each run, `reports/index.html` is fully regenerated listing all current reports.
+After each run, `reports/index.html` is replaced with the latest report, and `reports/snapshots.json` lists the 14 newest snapshots (about a week at two runs per trading day) for the report's Snapshot menu.
 
 ## Directory layout
 
@@ -82,7 +84,7 @@ To deploy to a remote Docker host, point the same commands at it. The image is b
 docker -H ssh://core@192.168.50.207 compose -f docker/compose.yaml up -d --build
 ```
 
-The GitHub **Update Portfolio** workflow is kept for manual runs only. GitHub-scheduled runs were routinely delayed by 3–4 hours.
+The container is the only publisher. The old GitHub Actions workflow was removed because GitHub-scheduled runs were routinely delayed by 3–4 hours.
 
 ## Manual export from OptionStrat
 
@@ -92,54 +94,32 @@ The GitHub **Update Portfolio** workflow is kept for manual runs only. GitHub-sc
 
 Individual option legs and non-spread positions are filtered out automatically. Only spreads are included.
 
-## What-if modeling
+## The report — `portfolio.js`
 
-Every generated HTML report contains a **What-if** panel at the top. Paste a spread row from the OptionStrat CSV export (or copy directly from Excel — tab-separated format is also accepted) and click **Add**. The row is inserted into every table in the correct sorted position and highlighted with a colored border. A pill appears at the top for each added spread; click its **×** to remove that spread from all tables. Multiple spreads can be modeled simultaneously. All totals update automatically when rows are added or removed.
+Each report is one self-contained HTML page. It embeds its snapshot as JSON and `report.js` draws it in the browser. Colours come from the same three-colour palette engine as equity-watch (`palette.js`): pick a palette with the swatch in the lower left, and switch light or dark mode in the header. Both choices are remembered per browser.
 
-This lets you see exactly how a prospective trade would change your greek concentrations, quality rankings, and scorecard before entering the position.
+**Snapshot menu.** Lists the 14 newest snapshots from `snapshots.json`. Choosing one loads its `*-portfolio.json` and redraws the page in place, so older snapshots use the current design too. The choice is kept in the URL (`?snapshot=<base>`), so it can be linked. Opened from disk, the menu shows only the report itself.
 
-## Portfolio analysis — `portfolio.js`
+**Decisions.** Four lists at the top of the page, before any analysis:
+- *Ready to close*: at or past 50% of max profit.
+- *At the stop*: the loss has reached 25% of max loss.
+- *21 days or less*: inside the close-or-roll window.
+- *Getting close*: more than 60% of the way to either exit.
 
-**Theta Concentration**
-Daily time decay by underlying × expiration. Green = more theta collected. Rows sorted by theta total descending. Grand total = how much the whole book earns per day from time decay.
+**Book totals.** Theta per day, delta, gamma and vega per IV point for the whole book. Each total is also the switch for the heatmap directly below (keys 1–4 do the same).
 
-**Vega Concentration**
-Short-volatility risk by underlying × expiration. All values are negative (credit spreads are short premium = short vega). More red = more exposure to a volatility spike. Rows sorted by vega total ascending (most exposed first). Grand total = approximate dollar loss across the book per 1% rise in IV.
+**Heatmap.** The chosen greek by underlying and expiration, with row and column totals. Each underlying gets one row per spread type, so the two legs of an iron condor stay separate. Delta uses a diverging scale: signal colour for bullish, ink for bearish.
 
-**Delta Concentration**
-Net directional exposure by underlying × expiration. Bull Put spreads contribute positive delta, Bear Call spreads contribute negative delta. Diverging color scale (green = positive, red = negative). Rows sorted by delta total descending (most positive first).
+**Spread detail.** Click any cell, chart dot, decision or scorecard row to open that spread: progress from the stop to the close target, PoP, credit, max loss, EV, IV, the greeks, and its rank on both quality ratios. Iron condor legs link to each other.
 
-**Gamma Concentration**
-Convexity risk by underlying × expiration. All values are negative (credit spreads are short gamma). More red = more exposure to large moves in either direction. Rows sorted by gamma total ascending (most exposed first).
+**What each spread pays for its risk.** Theta per unit gamma against theta per unit vega. Spreads below the median on both fall in the shaded corner. Those are the first to close when you want capital back. Spreads with zero gamma or vega are listed under the chart instead.
 
-**Theta / |Gamma| Quality**
-Each spread ranked by daily theta earned per unit of gamma risk. Higher is better — the position is well-compensated for its convexity exposure. Useful for identifying positions to close to free up capital. Positions with gamma = 0 are listed at the bottom.
+**Scorecard.** Every spread with days left, PoP, credit, max loss, EV, progress toward an exit, the greeks, IV and both quality ratios, plus book totals. Select a heading to sort. A column guide below the table explains each one. For progress toward an exit, a gain is a share of max profit and a loss is a share of max loss, matching the two exit rules.
 
-**Theta / |Vega| Quality**
-Each spread ranked by daily theta earned per unit of vega exposure. Higher is better — the position is well-compensated for its volatility risk. Low values identify the first candidates to close into a volatility spike. Complements Theta/|Gamma|: gamma risk is acute and move-driven; vega risk is broader and regime-driven.
-
-**Position Scorecard**
-All metrics side-by-side in one table, each column independently color-normalized. Grouped by expiration, sorted by theta within each group.
-
-| Column | Description |
-|---|---|
-| Chance | Platform's probability of max profit (both legs expire worthless) |
-| Credit | Net premium collected |
-| Max Profit | Maximum possible gain |
-| Max Loss | Maximum possible loss |
-| EV | `Chance × MaxProfit − (1−Chance) × MaxLoss` — binary-outcome expected value. Negative EV is typical since max loss >> max profit; use it as a relative comparison across positions, not an absolute signal. |
-| Θ Theta | Daily time decay (positive = earns with each passing day) |
-| Vega | Sensitivity to implied volatility (negative = hurt by IV spikes) |
-| Γ Gamma | Convexity (negative for credit spreads — large moves in either direction hurt) |
-| IV | Implied volatility at entry |
-| Θ/\|Γ\| | Quality ratio: theta per unit of gamma risk |
-| Θ/\|V\| | Quality ratio: theta per unit of vega exposure |
-| Return | Current return on the position |
-
-An expandable column guide at the bottom of the scorecard explains EV and all columns to its right in detail.
+**Try a trade.** Paste one or more rows from the OptionStrat export, comma-separated or copied from Excel. Each trade is added to every total, the heatmap, the chart and the scorecard with a dashed outline, and the totals show how much it changes. Remove a trade with its × chip. Rows that aren't spreads stay in the box with a note.
 
 **JSON snapshot**
-`portfolio.js` also writes `reports/*-portfolio.json` — a machine-readable version of the scorecard. Each file is timestamped and contains all position metrics with ISO-formatted expiration dates. Intended for downstream use: periodic risk checks, alerts on low-quality positions, and trend graphs across snapshots over time.
+`portfolio.js` also writes `reports/*-portfolio.json`. Each file is timestamped and contains all position metrics with ISO-formatted expiration dates. The report page reads these for its Snapshot menu, and `daily-pnl.js` compares them.
 
 ## Requirements
 

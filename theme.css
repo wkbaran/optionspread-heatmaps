@@ -1,0 +1,80 @@
+/*
+ * Shared theme for the generated pages (portfolio report and archive).
+ *
+ * Same engine as equity-watch: palette.js sets three inputs on <html>
+ * (--p-ground, --p-ink, --p-signal) and every other colour is mixed from
+ * them. Light mode swaps ground and ink and pulls the signal toward the new
+ * ground so it holds contrast.
+ *
+ * The signal means "wants attention": an exit rule that has fired, the
+ * greek being shown, a trial trade. Symbols and chrome stay in ink.
+ */
+:root { --ground: var(--p-ground); --ink: var(--p-ink); --signal: var(--p-signal); color-scheme: dark; }
+:root[data-theme="light"] {
+  --ground: var(--p-ink); --ink: var(--p-ground);
+  --signal: color-mix(in oklab, var(--p-signal) 72%, var(--p-ground)); color-scheme: light;
+}
+:root {
+  --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+  --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+  --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+  --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+  --muted: color-mix(in oklab, var(--ink) 50%, var(--ground));
+  --sub: color-mix(in oklab, var(--ink) 72%, var(--ground));
+  --wash: color-mix(in oklab, var(--signal) 13%, var(--ground));
+  --on-signal: var(--ground);
+  --radius-s: 4px; --radius-m: 10px;
+  --shadow: 0 18px 48px color-mix(in oklab, black 45%, transparent);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { font-size: 15px; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: 'Archivo', system-ui, sans-serif; font-stretch: 100%;
+  line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--ink); }
+button {
+  font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--ink); cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.35rem 0.7rem;
+}
+button:hover { border-color: var(--line-strong); }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.muted { color: var(--muted); }
+.btn-signal { background: var(--signal); color: var(--on-signal); border-color: transparent; font-weight: 650; }
+
+/* ---- header -------------------------------------------------------- */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.25rem;
+  padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 1rem; font-weight: 800; font-stretch: 125%; letter-spacing: 0.01em; margin: 0; }
+.brand a { text-decoration: none; }
+.top .spacer { flex: 1; }
+.top nav a { color: var(--sub); font-size: 0.86rem; }
+.wrap { max-width: 1380px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+.section-title { margin: 0; font-size: 1.7rem; font-weight: 600; font-stretch: 75%; letter-spacing: -0.005em; line-height: 1.1; }
+
+/* ---- palette control (palette.js) ---------------------------------- */
+.pal { position: fixed; left: 1.4rem; bottom: 1.2rem; z-index: 30; }
+.pal-toggle { display: flex; gap: 0; padding: 3px; border-radius: 999px; background: var(--raised); }
+.pal-toggle span, .pal-preset span { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+.pal-toggle span + span { margin-left: -4px; }
+.pal-panel {
+  position: absolute; left: 0; bottom: calc(100% + 8px); width: 15rem; padding: 0.9rem; display: grid; gap: 0.55rem;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); font-size: 0.82rem;
+}
+.pal-panel[hidden] { display: none; }
+.pal-heading { font-weight: 650; font-stretch: 85%; font-size: 0.95rem; }
+.pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pal-preset { display: flex; justify-content: center; padding: 6px 4px; }
+.pal-preset span + span { margin-left: -4px; }
+.pal-field { display: flex; align-items: center; gap: 0.6rem; }
+.pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+.pal-code { font-size: 0.75rem; color: var(--sub); user-select: all; }
+.pal-reset { font-size: 0.75rem; }
+
+@media (max-width: 720px) {
+  .top, .wrap { padding-left: 1rem; padding-right: 1rem; }
+}
