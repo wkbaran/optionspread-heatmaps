@@ -38,7 +38,7 @@ There's no browser automation, framework or build step. Downloads call the Optio
 You need Node.js 22.9 or newer (for `--env-file-if-exists`).
 
 ```bash
-npm ci               # not npm install; see Security below
+npm ci               # clean install of exactly what package-lock.json pins
 cp .env.example .env # add your OptionStrat credentials
 ./run.sh             # download → convert → analyse → reports/
 ```
@@ -153,10 +153,14 @@ The container is the only publisher. The GitHub Actions workflow was removed bec
 
 ## Security
 
-`npm ci` is intentional. It treats `package-lock.json` as authoritative and fails if anything drifts, so a compromised upstream release can't slip into the build. Don't run `npm install` on this project.
+`package-lock.json` pins every dependency to an exact version and integrity hash, so installs are reproducible and a tampered package fails verification. Docker uses `npm ci`, which also refuses to run if the lockfile and `package.json` disagree. Review lockfile diffs whenever a dependency is added or upgraded.
 
 `.env`, `docker/.env` and `.session.json` hold credentials and are gitignored.
 
 ## Disclaimer
 
 A personal tool for tracking my own positions. Greeks, PoP and prices come from OptionStrat and Yahoo Finance as-is, and nothing here is investment advice. Check positions with your broker before acting on a number.
+
+## License
+
+[FSL-1.1-MIT](LICENSE.md) (Functional Source License). You can use, modify and self-host this freely, including for your own trading. You can't offer it as a competing commercial product or service. Each version becomes available under MIT two years after its release.
