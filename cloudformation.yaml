@@ -12,6 +12,14 @@ Parameters:
     Type: String
     Description: S3 bucket name (must be globally unique)
 
+  DomainName:
+    Type: String
+    Description: Site hostname served by CloudFront (e.g. reports.example.com)
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route 53 hosted zone that contains DomainName
+
 Resources:
 
   # -- S3 bucket (private — served only through CloudFront) -------------------
@@ -58,11 +66,11 @@ Resources:
   Certificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
-      DomainName: spreads.billbaran.us
+      DomainName: !Ref DomainName
       ValidationMethod: DNS
       DomainValidationOptions:
-        - DomainName: spreads.billbaran.us
-          HostedZoneId: Z0927352H55TBS393ZU1
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
 
   # -- CloudFront Distribution -------------------------------------------------
 
@@ -97,7 +105,7 @@ Resources:
             ErrorCachingMinTTL: 10
 
         Aliases:
-          - spreads.billbaran.us
+          - !Ref DomainName
         ViewerCertificate:
           AcmCertificateArn: !Ref Certificate
           SslSupportMethod: sni-only
@@ -108,8 +116,8 @@ Resources:
   DnsRecord:
     Type: AWS::Route53::RecordSet
     Properties:
-      HostedZoneId: Z0927352H55TBS393ZU1
-      Name: spreads.billbaran.us
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
       Type: A
       AliasTarget:
         HostedZoneId: Z2FDTNDATAQYW2
@@ -190,7 +198,7 @@ Outputs:
 
   SiteUrl:
     Description: Public URL of the site
-    Value: https://spreads.billbaran.us
+    Value: !Sub 'https://${DomainName}'
 
   DistributionId:
     Description: CloudFront distribution ID

@@ -117,7 +117,7 @@ docs/       README screenshots
 
 ## Scheduled publishing (Docker)
 
-The `docker/` directory runs `publish.sh` on a schedule, publishing to https://spreads.billbaran.us.
+The `docker/` directory runs `publish.sh` on a schedule, publishing to the S3 bucket and CloudFront site described under [AWS](#aws).
 
 | File | Purpose |
 |---|---|
@@ -143,7 +143,15 @@ docker -H ssh://core@192.168.50.207 compose -f docker/compose.yaml up -d --build
 
 ### AWS
 
-`cloudformation.yaml` creates a private S3 bucket, a CloudFront distribution with HTTPS, and the `optionspread-heatmaps-billbaran-docker-publish` IAM user the container publishes as. Deploy it in `us-east-1`, since CloudFront's ACM certificate must live there. The user's access key is created outside the stack, so the secret never appears in stack outputs:
+`cloudformation.yaml` creates a private S3 bucket, a CloudFront distribution with HTTPS, and the `optionspread-heatmaps-billbaran-docker-publish` IAM user the container publishes as. Deploy it in `us-east-1`, since CloudFront's ACM certificate must live there. The site's hostname and its Route 53 hosted zone are parameters:
+
+```bash
+aws cloudformation deploy --region us-east-1 --stack-name spread-book \
+  --template-file cloudformation.yaml --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides BucketName=your-bucket DomainName=reports.example.com HostedZoneId=Z0123456789ABC
+```
+
+The user's access key is created outside the stack, so the secret never appears in stack outputs:
 
 ```bash
 aws iam create-access-key --user-name optionspread-heatmaps-billbaran-docker-publish
