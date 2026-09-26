@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  OptionSpread Heatmaps — static report hosting.
+  Spread Book — static report hosting.
   S3 bucket (private) + CloudFront (HTTPS) + IAM user for the Docker deployment,
   which is the only publisher. The GitHub Actions OIDC role is no longer used.
   IMPORTANT: Deploy this stack in us-east-1. ACM certificates used by
@@ -143,7 +143,7 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: repo:wkbaran/optionspread-heatmaps:*
+                token.actions.githubusercontent.com:sub: repo:wkbaran/spread-book:*
       Policies:
         - PolicyName: DeployToS3AndInvalidateCache
           PolicyDocument:

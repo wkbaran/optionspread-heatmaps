@@ -1,11 +1,11 @@
 {
-  "name": "optionspread-heatmaps",
+  "name": "spread-book",
   "version": "1.0.0",
   "description": "Greek concentration heatmaps and exit decisions for options credit spreads, from OptionStrat exports",
   "license": "FSL-1.1-MIT",
   "main": "portfolio.js",
   "bin": {
-    "heatmaps": "./portfolio.js"
+    "spread-book": "./portfolio.js"
   },
   "scripts": {
     "start": "./run.sh"

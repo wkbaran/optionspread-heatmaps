@@ -1,6 +1,6 @@
 <div align="center">
 
-# OptionSpread Heatmaps
+# Spread Book
 
 **Which credit spreads should you close today, and where is the book's risk piling up?**
 
@@ -131,7 +131,7 @@ The container runs with `TZ=America/Denver`, so the crontab is in local time and
 ```bash
 cp docker/.env.example docker/.env      # fill in credentials
 docker compose -f docker/compose.yaml up -d --build
-docker compose -f docker/compose.yaml exec optionspread /app/publish.sh   # publish now
+docker compose -f docker/compose.yaml exec spread-book /app/publish.sh   # publish now
 docker compose -f docker/compose.yaml logs -f
 ```
 

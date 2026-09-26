@@ -1,18 +1,22 @@
-name: optionspread-heatmaps
+name: spread-book
 
 services:
-  optionspread:
+  spread-book:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: optionspread-heatmaps
-    container_name: optionspread-heatmaps
+    image: spread-book
+    container_name: spread-book
     restart: unless-stopped
     env_file: .env
     volumes:
       - data:/app/data
       - reports:/app/reports
 
+# Pinned to the names created under the old optionspread-heatmaps project, so
+# the rename keeps the existing downloads and report history.
 volumes:
   data:
+    name: optionspread-heatmaps_data
   reports:
+    name: optionspread-heatmaps_reports
