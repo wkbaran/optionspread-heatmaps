@@ -138,7 +138,7 @@ docker compose -f docker/compose.yaml logs -f
 To deploy to a remote Docker host, point the same commands at it. The image is built on the remote host, and `docker/.env` is read locally:
 
 ```bash
-docker -H ssh://core@192.168.50.207 compose -f docker/compose.yaml up -d --build
+docker -H ssh://user@docker-host compose -f docker/compose.yaml up -d --build
 ```
 
 ### AWS
